@@ -23,7 +23,7 @@ type User struct {
 func main() {
 	cfg := mysql.Config{
 		User:   "clips_rest_user",
-		Passwd: "Horizon2024",
+		Passwd: "",
 		Net:    "tcp",
 		Addr:   "10.0.0.10",
 		DBName: "clips_archiver",

@@ -14,16 +14,16 @@ import (
 var db *sql.DB
 
 type User struct {
-	id           int
-	name         string
-	apexUsername string
-	apexUid      string
+	id           int    `json:"id"`
+	name         string `json:"name"`
+	apexUsername string `json:"apexUsername"`
+	apexUid      string `json:"apexUid"`
 }
 
 func main() {
 	cfg := mysql.Config{
 		User:   "clips_rest_user",
-		Passwd: "",
+		Passwd: "Horizon2024",
 		Net:    "tcp",
 		Addr:   "10.0.0.10",
 		DBName: "clips_archiver",
@@ -39,6 +39,7 @@ func main() {
 
 	// Register Routes
 	router.POST("/clips/upload", uploadClip)
+	router.GET("/users", getAllUsers)
 
 	// Start the server
 	routerErr := router.Run()
@@ -73,7 +74,16 @@ func uploadClip(c *gin.Context) {
 	c.String(http.StatusOK, fmt.Sprintf("'%s' uploaded!", file.Filename))
 }
 
-func getAllUsers() ([]User, error) {
+func getAllUsers(c *gin.Context) {
+	users, err := getAllUsersInternal()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		return
+	}
+	c.IndentedJSON(http.StatusOK, users)
+}
+
+func getAllUsersInternal() ([]User, error) {
 	var users []User
 
 	rows, dbErr := db.Query("SELECT * FROM users")
@@ -82,7 +92,7 @@ func getAllUsers() ([]User, error) {
 	}
 
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var user User
 		if err := rows.Scan(&user.id, &user.name, &user.apexUsername, &user.apexUid); err != nil {

@@ -14,16 +14,33 @@ import (
 var db *sql.DB
 
 type User struct {
-	id           int    `json:"id"`
-	name         string `json:"name"`
-	apexUsername string `json:"apexUsername"`
-	apexUid      string `json:"apexUid"`
+	Id           int    `json:"id"`
+	Name         string `json:"name"`
+	ApexUsername string `json:"apexUsername"`
+	ApexUid      string `json:"apexUid"`
+}
+
+type Clip struct {
+	Id          int      `json:"id"`
+	OwnerId     int      `json:"ownerId"`
+	Filename    string   `json:"filename"`
+	IsProcessed bool     `json:"isProcessed"`
+	CreatedOn   string   `json:"createdOn"`
+	Tags        []string `json:"tags"`
+}
+
+type QueueEntry struct {
+	Id         int    `json:"id"`
+	ClipId     int    `json:"clipId"`
+	Status     string `json:"status"`
+	StartedAt  string `json:"startedAt"`
+	FinishedAt string `json:"finishedAt"`
 }
 
 func main() {
 	cfg := mysql.Config{
 		User:   "clips_rest_user",
-		Passwd: "Horizon2024",
+		Passwd: "123",
 		Net:    "tcp",
 		Addr:   "10.0.0.10",
 		DBName: "clips_archiver",
@@ -40,6 +57,9 @@ func main() {
 	// Register Routes
 	router.POST("/clips/upload", uploadClip)
 	router.GET("/users", getAllUsers)
+	router.GET("/clips/queue", getClipsQueue)
+	/*	// YYYY-MM-DD
+		router.GET("/clips/date/:date", getClipsForDate)*/
 
 	// Start the server
 	routerErr := router.Run()
@@ -95,7 +115,7 @@ func getAllUsersInternal() ([]User, error) {
 
 	for rows.Next() {
 		var user User
-		if err := rows.Scan(&user.id, &user.name, &user.apexUsername, &user.apexUid); err != nil {
+		if err := rows.Scan(&user.Id, &user.Name, &user.ApexUsername, &user.ApexUid); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -106,3 +126,25 @@ func getAllUsersInternal() ([]User, error) {
 	}
 	return users, nil
 }
+
+func getClipsQueue(c *gin.Context) {
+	queueEntries, err := getAllUsersInternal()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		return
+	}
+	c.IndentedJSON(http.StatusOK, queueEntries)
+}
+
+/*func getClipsQueueInternal(c *gin.Context) {
+
+}*/
+
+/*func getClipsForDate(c *gin.Context) {
+	date := c.Param("day")
+	values := strings.Split(date, "-")
+}
+
+func getClipsForDateInternal(string date) {
+
+}*/

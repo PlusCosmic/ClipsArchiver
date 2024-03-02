@@ -1,65 +1,40 @@
 package main
 
 import (
-	"database/sql"
+	"ClipsArchiver/internal/db"
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/go-sql-driver/mysql"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 )
 
-var db *sql.DB
-
-type User struct {
-	Id           int    `json:"id"`
-	Name         string `json:"name"`
-	ApexUsername string `json:"apexUsername"`
-	ApexUid      string `json:"apexUid"`
-}
-
-type Clip struct {
-	Id          int      `json:"id"`
-	OwnerId     int      `json:"ownerId"`
-	Filename    string   `json:"filename"`
-	IsProcessed bool     `json:"isProcessed"`
-	CreatedOn   string   `json:"createdOn"`
-	Tags        []string `json:"tags"`
-}
-
-type QueueEntry struct {
-	Id         int    `json:"id"`
-	ClipId     int    `json:"clipId"`
-	Status     string `json:"status"`
-	StartedAt  string `json:"startedAt"`
-	FinishedAt string `json:"finishedAt"`
-}
+const inputPath = "/Uploads/"
+const outputPath = "/Clips/"
+const thumbnailsPath = "/Clips/Thumbnails/"
+const storePath = "/Volumes/Big Store/TheArchive"
 
 func main() {
-	cfg := mysql.Config{
-		User:   "clips_rest_user",
-		Passwd: "123",
-		Net:    "tcp",
-		Addr:   "10.0.0.10",
-		DBName: "clips_archiver",
-	}
-	var dbErr error
-	db, dbErr = sql.Open("mysql", cfg.FormatDSN())
-	if dbErr != nil {
-		log.Fatal(dbErr)
+
+	err := db.SetupDb()
+	if err != nil {
 		return
 	}
 	// Create Gin router
 	router := gin.Default()
 
 	// Register Routes
-	router.POST("/clips/upload", uploadClip)
+	router.POST("/clips/upload/:ownerId", uploadClip)
+	router.PUT("/clips/:clipId", updateClip)
 	router.GET("/users", getAllUsers)
 	router.GET("/clips/queue", getClipsQueue)
-	/*	// YYYY-MM-DD
-		router.GET("/clips/date/:date", getClipsForDate)*/
+	// YYYY-MM-DD
+	router.GET("/clips/date/:date", getClipsForDate)
+	router.GET("/clips/download/:clipId", downloadClipById)
+	router.GET("/clips/download/thumbnail/:clipId", downloadClipThumbnailById)
 
 	// Start the server
 	routerErr := router.Run()
@@ -70,6 +45,10 @@ func main() {
 }
 
 func uploadClip(c *gin.Context) {
+	ownerId, conversionErr := strconv.Atoi(c.Param("ownerId"))
+	if conversionErr != nil {
+		c.String(http.StatusBadRequest, "invalid owner id provided: %s", c.Param("ownerId"))
+	}
 	// Single file
 	file, err := c.FormFile("file")
 	log.Println(file.Filename)
@@ -79,15 +58,15 @@ func uploadClip(c *gin.Context) {
 		return
 	}
 
-	ex, err := os.Executable()
-	if err != nil {
-		panic(err)
-	}
-	exPath := filepath.Dir(ex)
-
-	filename := exPath + "/uploads/" + filepath.Base(file.Filename)
+	filename := storePath + inputPath + filepath.Base(file.Filename)
 	if err := c.SaveUploadedFile(file, filename); err != nil {
 		c.String(http.StatusBadRequest, "upload file err: %s", err.Error())
+		return
+	}
+
+	addClipErr := db.AddClip(ownerId, file.Filename)
+	if addClipErr != nil {
+		c.String(http.StatusInternalServerError, addClipErr.Error())
 		return
 	}
 
@@ -95,7 +74,7 @@ func uploadClip(c *gin.Context) {
 }
 
 func getAllUsers(c *gin.Context) {
-	users, err := getAllUsersInternal()
+	users, err := db.GetAllUsers()
 	if err != nil {
 		c.String(http.StatusInternalServerError, "Something went wrong :(")
 		return
@@ -103,32 +82,8 @@ func getAllUsers(c *gin.Context) {
 	c.IndentedJSON(http.StatusOK, users)
 }
 
-func getAllUsersInternal() ([]User, error) {
-	var users []User
-
-	rows, dbErr := db.Query("SELECT * FROM users")
-	if dbErr != nil {
-		return nil, dbErr
-	}
-
-	defer rows.Close()
-
-	for rows.Next() {
-		var user User
-		if err := rows.Scan(&user.Id, &user.Name, &user.ApexUsername, &user.ApexUid); err != nil {
-			return nil, err
-		}
-		users = append(users, user)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return users, nil
-}
-
 func getClipsQueue(c *gin.Context) {
-	queueEntries, err := getAllUsersInternal()
+	queueEntries, err := db.GetClipsQueue()
 	if err != nil {
 		c.String(http.StatusInternalServerError, "Something went wrong :(")
 		return
@@ -136,15 +91,89 @@ func getClipsQueue(c *gin.Context) {
 	c.IndentedJSON(http.StatusOK, queueEntries)
 }
 
-/*func getClipsQueueInternal(c *gin.Context) {
-
-}*/
-
-/*func getClipsForDate(c *gin.Context) {
-	date := c.Param("day")
+func getClipsForDate(c *gin.Context) {
+	date := c.Param("date")
 	values := strings.Split(date, "-")
+	if len(values) != 3 {
+		c.String(http.StatusBadRequest, "Invalid date format: Should be YYYY-MM-DD.")
+		return
+	}
+	year, err := strconv.Atoi(values[0])
+	if err != nil {
+		c.String(http.StatusBadRequest, "Invalid date format: Should be YYYY-MM-DD.")
+		return
+	}
+
+	month, err := strconv.Atoi(values[1])
+	if err != nil {
+		c.String(http.StatusBadRequest, "Invalid date format: Should be YYYY-MM-DD.")
+		return
+	}
+
+	day, err := strconv.Atoi(values[2])
+	if err != nil {
+		c.String(http.StatusBadRequest, "Invalid date format: Should be YYYY-MM-DD.")
+		return
+	}
+
+	clips, err := db.GetClipsForDate(time.Date(year, time.Month(month), day, 4, 0, 0, 0, time.UTC))
+
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Something went wrong :(")
+	}
+
+	c.IndentedJSON(http.StatusOK, clips)
 }
 
-func getClipsForDateInternal(string date) {
+func downloadClipById(c *gin.Context) {
+	clipId, conversionErr := strconv.Atoi(c.Param("clipId"))
+	if conversionErr != nil {
+		c.String(http.StatusBadRequest, "invalid clip id provided: %s", c.Param("clipId"))
+		return
+	}
+	clip, err := db.GetClipById(clipId)
 
-}*/
+	if err != nil {
+		c.String(http.StatusBadRequest, "no clip found with id: %d", clipId)
+		return
+	}
+
+	c.FileAttachment(storePath+outputPath+clip.Filename, clip.Filename)
+}
+
+func downloadClipThumbnailById(c *gin.Context) {
+	clipId, conversionErr := strconv.Atoi(c.Param("clipId"))
+	if conversionErr != nil {
+		c.String(http.StatusBadRequest, "invalid clip id provided: %s", c.Param("clipId"))
+		return
+	}
+	clip, err := db.GetClipById(clipId)
+
+	if err != nil {
+		c.String(http.StatusBadRequest, "no clip found with id: %d", clipId)
+		return
+	}
+
+	c.FileAttachment(storePath+thumbnailsPath+clip.Filename+".png", clip.Filename+".png")
+}
+
+func updateClip(c *gin.Context) {
+	var clip db.Clip
+	if err := c.BindJSON(&clip); err != nil {
+		c.String(http.StatusBadRequest, "Invalid body for Clip")
+	}
+	clipId, conversionErr := strconv.Atoi(c.Param("clipId"))
+	if conversionErr != nil {
+		c.String(http.StatusBadRequest, "invalid clip id provided: %s", c.Param("clipId"))
+		return
+	}
+	existingClip, err := db.GetClipById(clipId)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		return
+	}
+	err = db.UpdateClip(existingClip, clip)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Something went wrong :(")
+	}
+}

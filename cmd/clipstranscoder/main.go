@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"github.com/go-sql-driver/mysql"
 	"github.com/u2takey/ffmpeg-go"
+	"github.com/vansante/go-ffprobe"
 	"log"
-	"os"
-	"path/filepath"
-	"runtime"
 	"time"
 )
 
@@ -23,8 +21,10 @@ type QueueEntry struct {
 	Filename   string
 }
 
-const inputPath = "/uploads/"
-const outputPath = "/archive/"
+const inputPath = "/Uploads/"
+const outputPath = "/Clips/"
+const thumbnailsPath = "/Clips/Thumbnails/"
+const storePath = "/Volumes/Big Store/TheArchive"
 
 func main() {
 	cfg := mysql.Config{
@@ -62,6 +62,7 @@ func checkForQueueEntries() {
 }
 
 func getClipsQueueInternal() ([]QueueEntry, error) {
+	println("Checking for new queue entries")
 	var queueEntries []QueueEntry
 
 	rows, dbErr := db.Query("SELECT clips_queue.*,clips.filename FROM clips_queue INNER JOIN clips on clips_queue.clip_id = clips.id where status = 'pending'")
@@ -87,19 +88,37 @@ func getClipsQueueInternal() ([]QueueEntry, error) {
 
 func transcodeClip(queueEntry QueueEntry) {
 	fmt.Printf("Starting transcode on %s\n", queueEntry.Filename)
-	ex, err := os.Executable()
-	if err != nil {
-		panic(err)
+	_, dbErr := db.Exec("UPDATE clips_queue SET clips_queue.status = 'transcoding', clips_queue.started_at = ? WHERE clips_queue.clip_id = ?", time.Now(), queueEntry.ClipId)
+	if dbErr != nil {
+		return
 	}
-	exPath := filepath.Dir(ex)
 
 	encoder := "hevc_videotoolbox"
-	if runtime.GOOS == "windows" {
-		encoder = "h264_nvenc"
-	}
-	encodeErr := ffmpeg_go.Input(exPath+inputPath+queueEntry.Filename).Output(exPath+outputPath+queueEntry.Filename, ffmpeg_go.KwArgs{"c:v": encoder, "q:v": 65}).OverWriteOutput().ErrorToStdOut().Run()
+
+	encodeErr := ffmpeg_go.Input(storePath+inputPath+queueEntry.Filename).Output(storePath+outputPath+queueEntry.Filename, ffmpeg_go.KwArgs{"c:v": encoder, "q:v": 65, "vf": "scale=1920:1080"}).OverWriteOutput().ErrorToStdOut().Run()
 	if encodeErr != nil {
 		fmt.Println("Something went wrong when transcoding")
-		fmt.Println(err)
+		fmt.Println(encodeErr)
 	}
+
+	thumbnailErr := ffmpeg_go.Input(storePath+inputPath+queueEntry.Filename).Output(storePath+thumbnailsPath+queueEntry.Filename+".png", ffmpeg_go.KwArgs{"ss": "00:00:01.000", "frames:v": 1}).OverWriteOutput().ErrorToStdOut().Run()
+	if thumbnailErr != nil {
+		fmt.Println("Something went wrong when creating thumbnail")
+		fmt.Println(thumbnailErr)
+	}
+
+	result, err := ffprobe.GetProbeData(storePath+outputPath+queueEntry.Filename, 120000*time.Millisecond)
+	if err != nil {
+		return
+	}
+
+	_, dbErr = db.Exec("UPDATE clips_queue SET clips_queue.status = 'finished', clips_queue.finished_at = ? WHERE clips_queue.clip_id = ?", time.Now(), queueEntry.ClipId)
+	if dbErr != nil {
+		return
+	}
+	_, dbErr = db.Exec("UPDATE clips SET clips.is_processed = 1, clips.duration = ? WHERE clips.id = ?", result.Format.DurationSeconds, queueEntry.ClipId)
+	if dbErr != nil {
+		return
+	}
+
 }

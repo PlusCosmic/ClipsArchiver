@@ -21,6 +21,7 @@ type QueueEntry struct {
 	Filename   string
 }
 
+const cacheStorePath = "/Users/pluscosmic"
 const inputPath = "/Uploads/"
 const outputPath = "/Clips/"
 const thumbnailsPath = "/Clips/Thumbnails/"
@@ -55,8 +56,11 @@ func checkForQueueEntries() {
 		fmt.Println("Something went wrong in fetching the clips queue :(")
 		return
 	}
+	jobs := make(chan QueueEntry, 10)
+
+	go receiveTranscodeClipVTB(jobs)
 	for _, queueEntry := range queueEntries {
-		transcodeClip(queueEntry)
+		jobs <- queueEntry
 	}
 
 }
@@ -86,22 +90,28 @@ func getClipsQueueInternal() ([]QueueEntry, error) {
 	return queueEntries, nil
 }
 
-func transcodeClip(queueEntry QueueEntry) {
+func receiveTranscodeClipVTB(jobs <-chan QueueEntry) {
+	for q := range jobs {
+		transcodeClipVTB(q)
+	}
+}
+
+func transcodeClipVTB(queueEntry QueueEntry) {
 	fmt.Printf("Starting transcode on %s\n", queueEntry.Filename)
 	_, dbErr := db.Exec("UPDATE clips_queue SET clips_queue.status = 'transcoding', clips_queue.started_at = ? WHERE clips_queue.clip_id = ?", time.Now(), queueEntry.ClipId)
 	if dbErr != nil {
 		return
 	}
 
-	encoder := "hevc_videotoolbox"
+	encoder := "h264_videotoolbox"
 
-	encodeErr := ffmpeg_go.Input(storePath+inputPath+queueEntry.Filename).Output(storePath+outputPath+queueEntry.Filename, ffmpeg_go.KwArgs{"c:v": encoder, "q:v": 65, "vf": "scale=1920:1080"}).OverWriteOutput().ErrorToStdOut().Run()
+	encodeErr := ffmpeg_go.Input(cacheStorePath+inputPath+queueEntry.Filename).Output(storePath+outputPath+queueEntry.Filename, ffmpeg_go.KwArgs{"c:v": encoder, "q:v": 65, "vf": "scale=1920:1080"}).OverWriteOutput().ErrorToStdOut().Run()
 	if encodeErr != nil {
 		fmt.Println("Something went wrong when transcoding")
 		fmt.Println(encodeErr)
 	}
 
-	thumbnailErr := ffmpeg_go.Input(storePath+inputPath+queueEntry.Filename).Output(storePath+thumbnailsPath+queueEntry.Filename+".png", ffmpeg_go.KwArgs{"ss": "00:00:01.000", "frames:v": 1}).OverWriteOutput().ErrorToStdOut().Run()
+	thumbnailErr := ffmpeg_go.Input(cacheStorePath+inputPath+queueEntry.Filename).Output(storePath+thumbnailsPath+queueEntry.Filename+".png", ffmpeg_go.KwArgs{"ss": "00:00:01.000", "frames:v": 1}).OverWriteOutput().ErrorToStdOut().Run()
 	if thumbnailErr != nil {
 		fmt.Println("Something went wrong when creating thumbnail")
 		fmt.Println(thumbnailErr)

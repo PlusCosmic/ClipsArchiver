@@ -2,7 +2,6 @@ package main
 
 import (
 	"ClipsArchiver/internal/db"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"log"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 	"time"
 )
 
+const cacheStorePath = "/Users/pluscosmic"
 const inputPath = "/Uploads/"
 const outputPath = "/Clips/"
 const thumbnailsPath = "/Clips/Thumbnails/"
@@ -29,12 +29,16 @@ func main() {
 	// Register Routes
 	router.POST("/clips/upload/:ownerId", uploadClip)
 	router.PUT("/clips/:clipId", updateClip)
+	router.GET("/clips/filename/:filename", getClipByFilename)
 	router.GET("/users", getAllUsers)
+	router.GET("/tags", getAllTags)
 	router.GET("/clips/queue", getClipsQueue)
+	router.GET("/clips/queue/:clipId", getQueueEntryById)
 	// YYYY-MM-DD
 	router.GET("/clips/date/:date", getClipsForDate)
 	router.GET("/clips/download/:clipId", downloadClipById)
 	router.GET("/clips/download/thumbnail/:clipId", downloadClipThumbnailById)
+	router.StaticFS("/clips/archive", http.Dir(storePath+outputPath))
 
 	// Start the server
 	routerErr := router.Run()
@@ -47,30 +51,66 @@ func main() {
 func uploadClip(c *gin.Context) {
 	ownerId, conversionErr := strconv.Atoi(c.Param("ownerId"))
 	if conversionErr != nil {
+		println(conversionErr.Error())
 		c.String(http.StatusBadRequest, "invalid owner id provided: %s", c.Param("ownerId"))
+		return
 	}
 	// Single file
-	file, err := c.FormFile("file")
-	log.Println(file.Filename)
-
+	form, err := c.MultipartForm()
+	files := form.File["file"]
+	file := files[0]
 	if err != nil {
+		println(err.Error())
 		c.String(http.StatusBadRequest, "get form err: %s", err.Error())
 		return
 	}
 
-	filename := storePath + inputPath + filepath.Base(file.Filename)
+	clip, err := db.GetClipByFilename(file.Filename)
+
+	if err == nil {
+		println("clip exists")
+		c.String(http.StatusBadRequest, "file already uploaded as clip with id: %d", clip.Id)
+		return
+	}
+
+	filename := cacheStorePath + inputPath + filepath.Base(file.Filename)
 	if err := c.SaveUploadedFile(file, filename); err != nil {
+		println(err.Error())
 		c.String(http.StatusBadRequest, "upload file err: %s", err.Error())
 		return
 	}
 
-	addClipErr := db.AddClip(ownerId, file.Filename)
+	creationDateTime := form.Value["creationDateTime"][0]
+	dateTimeParts := strings.Split(creationDateTime, "-")
+	var dateTimePartsAsIntegers [5]int
+	for i := 0; i < 5; i++ {
+		number, err := strconv.Atoi(dateTimeParts[i])
+		if err != nil {
+			println(err.Error())
+			c.String(http.StatusBadRequest, "invalid creation date provided")
+			return
+		}
+		dateTimePartsAsIntegers[i] = number
+	}
+	dateTime := time.Date(dateTimePartsAsIntegers[0], time.Month(dateTimePartsAsIntegers[1]), dateTimePartsAsIntegers[2], dateTimePartsAsIntegers[3], dateTimePartsAsIntegers[4], 0, 0, time.UTC)
+	clip, addClipErr := db.AddClip(ownerId, file.Filename, dateTime)
 	if addClipErr != nil {
+		println(addClipErr.Error())
 		c.String(http.StatusInternalServerError, addClipErr.Error())
 		return
 	}
 
-	c.String(http.StatusOK, fmt.Sprintf("'%s' uploaded!", file.Filename))
+	c.IndentedJSON(http.StatusCreated, clip)
+}
+
+func getClipByFilename(c *gin.Context) {
+	clip, err := db.GetClipByFilename(c.Param("filename"))
+	if err != nil {
+		println(err.Error())
+		c.String(http.StatusNotFound, "No clip found for filename")
+		return
+	}
+	c.IndentedJSON(http.StatusOK, clip)
 }
 
 func getAllUsers(c *gin.Context) {
@@ -82,6 +122,15 @@ func getAllUsers(c *gin.Context) {
 	c.IndentedJSON(http.StatusOK, users)
 }
 
+func getAllTags(c *gin.Context) {
+	tags, err := db.GetAllTags()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		return
+	}
+	c.IndentedJSON(http.StatusOK, tags)
+}
+
 func getClipsQueue(c *gin.Context) {
 	queueEntries, err := db.GetClipsQueue()
 	if err != nil {
@@ -89,6 +138,25 @@ func getClipsQueue(c *gin.Context) {
 		return
 	}
 	c.IndentedJSON(http.StatusOK, queueEntries)
+}
+
+func getQueueEntryById(c *gin.Context) {
+	clipId, conversionErr := strconv.Atoi(c.Param("clipId"))
+	if conversionErr != nil {
+		println(conversionErr.Error())
+		c.String(http.StatusBadRequest, "invalid clip id provided: %s", c.Param("clipId"))
+		return
+	}
+
+	queueEntry, err := db.GetQueueEntryByClipId(clipId)
+
+	if err != nil {
+		println(err.Error())
+		c.String(http.StatusBadRequest, "invalid clip id provided: %s", c.Param("clipId"))
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, queueEntry)
 }
 
 func getClipsForDate(c *gin.Context) {
@@ -119,6 +187,7 @@ func getClipsForDate(c *gin.Context) {
 	clips, err := db.GetClipsForDate(time.Date(year, time.Month(month), day, 4, 0, 0, 0, time.UTC))
 
 	if err != nil {
+		println(err)
 		c.String(http.StatusInternalServerError, "Something went wrong :(")
 	}
 

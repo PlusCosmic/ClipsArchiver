@@ -3,6 +3,7 @@ module ClipsArchiver
 go 1.22.0
 
 require (
+	github.com/djherbis/times v1.6.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-sql-driver/mysql v1.7.1
 	github.com/u2takey/ffmpeg-go v0.5.0
@@ -39,4 +40,3 @@ require (
 	google.golang.org/protobuf v1.32.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-

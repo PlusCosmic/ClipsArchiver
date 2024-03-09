@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
 	"github.com/go-sql-driver/mysql"
 	"time"
 )
@@ -16,21 +17,23 @@ type User struct {
 }
 
 type Clip struct {
-	Id          int      `json:"id"`
-	OwnerId     int      `json:"ownerId"`
-	Filename    string   `json:"filename"`
-	IsProcessed bool     `json:"isProcessed"`
-	CreatedAt   string   `json:"createdOn"`
-	Duration    int      `json:"duration"`
-	Tags        []string `json:"tags"`
+	Id           int          `json:"id"`
+	OwnerId      int          `json:"ownerId"`
+	Filename     string       `json:"filename"`
+	IsProcessed  bool         `json:"isProcessed"`
+	CreatedAt    sql.NullTime `json:"createdOn"`
+	Duration     int          `json:"duration"`
+	Tags         []string     `json:"tags"`
+	ThumbnailUri string       `json:"thumbnailUri"`
+	VideoUri     string       `json:"videoUri"`
 }
 
 type QueueEntry struct {
-	Id         int    `json:"id"`
-	ClipId     int    `json:"clipId"`
-	Status     string `json:"status"`
-	StartedAt  string `json:"startedAt"`
-	FinishedAt string `json:"finishedAt"`
+	Id         int          `json:"id"`
+	ClipId     int          `json:"clipId"`
+	Status     string       `json:"status"`
+	StartedAt  sql.NullTime `json:"startedAt"`
+	FinishedAt sql.NullTime `json:"finishedAt"`
 }
 
 type Tag struct {
@@ -38,13 +41,19 @@ type Tag struct {
 	Name string `json:"name"`
 }
 
+type ClipTag struct {
+	ClipId int
+	TagId  int
+}
+
 func SetupDb() error {
 	cfg := mysql.Config{
-		User:   "clips_rest_user",
-		Passwd: "123",
-		Net:    "tcp",
-		Addr:   "10.0.0.10",
-		DBName: "clips_archiver",
+		User:      "clips_rest_user",
+		Passwd:    "123",
+		Net:       "tcp",
+		Addr:      "10.0.0.10",
+		DBName:    "clips_archiver",
+		ParseTime: true,
 	}
 	var dbErr error
 	db, dbErr = sql.Open("mysql", cfg.FormatDSN())
@@ -75,8 +84,59 @@ func GetAllUsers() ([]User, error) {
 	return users, nil
 }
 
+func GetAllTags() ([]Tag, error) {
+	var tags []Tag
+
+	rows, dbErr := db.Query("SELECT * FROM tags")
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var tag Tag
+		if err := rows.Scan(&tag.Id, &tag.Name); err != nil {
+			return nil, err
+		}
+		tags = append(tags, tag)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return tags, nil
+}
+
 func GetClipsQueue() ([]QueueEntry, error) {
-	return nil, nil
+	var queueEntries []QueueEntry
+
+	rows, dbErr := db.Query("SELECT * FROM clips_queue")
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var queueEntry QueueEntry
+		if err := rows.Scan(&queueEntry.Id, &queueEntry.ClipId, &queueEntry.Status, &queueEntry.StartedAt, &queueEntry.FinishedAt); err != nil {
+			return nil, err
+		}
+
+		queueEntries = append(queueEntries, queueEntry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return queueEntries, nil
+}
+func GetQueueEntryByClipId(id int) (QueueEntry, error) {
+	var queueEntry QueueEntry
+	row := db.QueryRow("SELECT * FROM clips_queue WHERE clips_queue.clip_id = ?", id)
+
+	err := row.Scan(&queueEntry.Id, &queueEntry.ClipId, &queueEntry.Status, &queueEntry.StartedAt, &queueEntry.FinishedAt)
+	return queueEntry, err
 }
 
 func GetClipsForDate(dateOf time.Time) ([]Clip, error) {
@@ -101,6 +161,8 @@ func GetClipsForDate(dateOf time.Time) ([]Clip, error) {
 		if err == nil {
 			clip.Tags = tags
 		}
+		clip.VideoUri = fmt.Sprintf("http://10.0.0.10:8080/clips/archive/%s", clip.Filename)
+		clip.ThumbnailUri = fmt.Sprintf("http://10.0.0.10:8080/clips/archive/Thumbnails/%s", clip.Filename+".png")
 		clips = append(clips, clip)
 	}
 
@@ -110,19 +172,22 @@ func GetClipsForDate(dateOf time.Time) ([]Clip, error) {
 	return clips, nil
 }
 
-func AddClip(ownerId int, filename string) error {
-	clip, err := db.Exec("INSERT INTO clips (owner_id, filename, is_processed, created_at) VALUES (?, ?, ?, ?)", ownerId, filename, 0, time.Now())
+func AddClip(ownerId int, filename string, createdAt time.Time) (Clip, error) {
+	var clip Clip
+	clipResult, err := db.Exec("INSERT INTO clips (owner_id, filename, is_processed, created_at) VALUES (?, ?, ?, ?)", ownerId, filename, 0, createdAt)
 	if err != nil {
-		return err
+		return clip, err
 	}
 
-	id, err := clip.LastInsertId()
+	id, err := clipResult.LastInsertId()
 	if err != nil {
-		return err
+		return clip, err
 	}
+
+	clip, err = GetClipById(int(id))
 
 	err = AddClipToQueue(int(id))
-	return err
+	return clip, err
 }
 
 func AddClipToQueue(clipId int) error {
@@ -179,7 +244,12 @@ func UpdateClip(old Clip, new Clip) error {
 				return err
 			}
 		}
-
+		var existingClipTag ClipTag
+		row = db.QueryRow("SELECT * FROM clips_tags WHERE clip_id = ? AND tag_id = ?", old.Id, existingTag.Id)
+		err = row.Scan(&existingClipTag.ClipId, &existingClipTag.TagId)
+		if err == nil {
+			continue
+		}
 		_, err = db.Exec("INSERT INTO clips_tags (clip_id, tag_id) VALUES (?, ?)", old.Id, existingTag.Id)
 		if err != nil {
 			return err
@@ -193,5 +263,30 @@ func GetClipById(clipId int) (Clip, error) {
 	row := db.QueryRow("SELECT * FROM clips WHERE clips.id = ?", clipId)
 
 	err := row.Scan(&clip.Id, &clip.OwnerId, &clip.Filename, &clip.IsProcessed, &clip.CreatedAt, &clip.Duration)
+	tags, err := GetTagsForClip(clip.Id)
+	if err == nil {
+		clip.Tags = tags
+	}
+	clip.VideoUri = fmt.Sprintf("http://10.0.0.10:8080/clips/archive/%s", clip.Filename)
+	clip.ThumbnailUri = fmt.Sprintf("http://10.0.0.10:8080/clips/archive/Thumbnails/%s", clip.Filename+".png")
+	return clip, err
+}
+
+func GetClipByFilename(filename string) (Clip, error) {
+	var clip Clip
+	row := db.QueryRow("SELECT * FROM clips WHERE clips.filename = ?", filename)
+
+	err := row.Scan(&clip.Id, &clip.OwnerId, &clip.Filename, &clip.IsProcessed, &clip.CreatedAt, &clip.Duration)
+
+	if err != nil {
+		return clip, err
+	}
+
+	tags, err := GetTagsForClip(clip.Id)
+	if err == nil {
+		clip.Tags = tags
+	}
+	clip.VideoUri = fmt.Sprintf("http://10.0.0.10:8080/clips/archive/%s", clip.Filename)
+	clip.ThumbnailUri = fmt.Sprintf("http://10.0.0.10:8080/clips/archive/Thumbnails/%s", clip.Filename+".png")
 	return clip, err
 }

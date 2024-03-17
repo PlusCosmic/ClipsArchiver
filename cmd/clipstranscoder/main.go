@@ -42,24 +42,28 @@ func main() {
 		log.Fatal(dbErr)
 		return
 	}
+	jobs := make(chan QueueEntry, 10)
 
+	go receiveTranscodeClipVTB(jobs)
 	//main loop
 	for i := 0; true; i++ {
 		time.Sleep(2 * time.Second)
-		checkForQueueEntries()
+		checkForQueueEntries(jobs)
 	}
 }
 
-func checkForQueueEntries() {
+func checkForQueueEntries(jobs chan<- QueueEntry) {
 	queueEntries, err := getClipsQueueInternal()
 	if err != nil {
 		fmt.Println("Something went wrong in fetching the clips queue :(")
 		return
 	}
-	jobs := make(chan QueueEntry, 10)
 
-	go receiveTranscodeClipVTB(jobs)
 	for _, queueEntry := range queueEntries {
+		_, dbErr := db.Exec("UPDATE clips_queue SET clips_queue.status = 'queued' WHERE clips_queue.clip_id = ?", queueEntry.ClipId)
+		if dbErr != nil {
+			return
+		}
 		jobs <- queueEntry
 	}
 

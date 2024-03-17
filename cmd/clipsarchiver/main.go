@@ -16,6 +16,7 @@ const inputPath = "/Uploads/"
 const outputPath = "/Clips/"
 const thumbnailsPath = "/Clips/Thumbnails/"
 const storePath = "/Volumes/Big Store/TheArchive"
+const resourcesPath = "/Resources/"
 
 func main() {
 
@@ -28,17 +29,21 @@ func main() {
 
 	// Register Routes
 	router.POST("/clips/upload/:ownerId", uploadClip)
+	router.GET("/clips/:clipId", getClip)
 	router.PUT("/clips/:clipId", updateClip)
+	router.DELETE("/clips/:clipId", deleteClip)
 	router.GET("/clips/filename/:filename", getClipByFilename)
 	router.GET("/users", getAllUsers)
 	router.GET("/tags", getAllTags)
+	router.GET("/maps", getAllMaps)
+	router.GET("/legends", getAllLegends)
 	router.GET("/clips/queue", getClipsQueue)
 	router.GET("/clips/queue/:clipId", getQueueEntryById)
-	// YYYY-MM-DD
-	router.GET("/clips/date/:date", getClipsForDate)
+	router.GET("/clips/date/:date", getClipsForDate) // YYYY-MM-DD
 	router.GET("/clips/download/:clipId", downloadClipById)
 	router.GET("/clips/download/thumbnail/:clipId", downloadClipThumbnailById)
 	router.StaticFS("/clips/archive", http.Dir(storePath+outputPath))
+	router.StaticFS("/resources", http.Dir(storePath+resourcesPath))
 
 	// Start the server
 	routerErr := router.Run()
@@ -82,8 +87,8 @@ func uploadClip(c *gin.Context) {
 
 	creationDateTime := form.Value["creationDateTime"][0]
 	dateTimeParts := strings.Split(creationDateTime, "-")
-	var dateTimePartsAsIntegers [5]int
-	for i := 0; i < 5; i++ {
+	var dateTimePartsAsIntegers [6]int
+	for i := 0; i < 6; i++ {
 		number, err := strconv.Atoi(dateTimeParts[i])
 		if err != nil {
 			println(err.Error())
@@ -92,7 +97,7 @@ func uploadClip(c *gin.Context) {
 		}
 		dateTimePartsAsIntegers[i] = number
 	}
-	dateTime := time.Date(dateTimePartsAsIntegers[0], time.Month(dateTimePartsAsIntegers[1]), dateTimePartsAsIntegers[2], dateTimePartsAsIntegers[3], dateTimePartsAsIntegers[4], 0, 0, time.UTC)
+	dateTime := time.Date(dateTimePartsAsIntegers[0], time.Month(dateTimePartsAsIntegers[1]), dateTimePartsAsIntegers[2], dateTimePartsAsIntegers[3], dateTimePartsAsIntegers[4], dateTimePartsAsIntegers[5], 0, time.UTC)
 	clip, addClipErr := db.AddClip(ownerId, file.Filename, dateTime)
 	if addClipErr != nil {
 		println(addClipErr.Error())
@@ -129,6 +134,24 @@ func getAllTags(c *gin.Context) {
 		return
 	}
 	c.IndentedJSON(http.StatusOK, tags)
+}
+
+func getAllMaps(c *gin.Context) {
+	gameMaps, err := db.GetAllMaps()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		return
+	}
+	c.IndentedJSON(http.StatusOK, gameMaps)
+}
+
+func getAllLegends(c *gin.Context) {
+	legends, err := db.GetAllLegends()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		return
+	}
+	c.IndentedJSON(http.StatusOK, legends)
 }
 
 func getClipsQueue(c *gin.Context) {
@@ -241,8 +264,40 @@ func updateClip(c *gin.Context) {
 		c.String(http.StatusInternalServerError, "Something went wrong :(")
 		return
 	}
-	err = db.UpdateClip(existingClip, clip)
+	err = db.UpdateClipTags(existingClip, clip)
 	if err != nil {
 		c.String(http.StatusInternalServerError, "Something went wrong :(")
 	}
+	err = db.UpdateClip(clip)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Something went wrong :(")
+	}
+}
+
+func deleteClip(c *gin.Context) {
+	clipId, err := strconv.Atoi(c.Param("clipId"))
+	if err != nil {
+		c.String(http.StatusBadRequest, "invalid clip id provided: %s", c.Param("clipId"))
+		return
+	}
+	err = db.DeleteClipById(clipId)
+	if err != nil {
+		c.String(http.StatusBadRequest, "invalid clip id provided: %s", c.Param("clipId"))
+		return
+	}
+	c.String(http.StatusNoContent, "Deleted clip")
+}
+
+func getClip(c *gin.Context) {
+	clipId, err := strconv.Atoi(c.Param("clipId"))
+	if err != nil {
+		c.String(http.StatusBadRequest, "invalid clip id provided: %s", c.Param("clipId"))
+		return
+	}
+	clip, err := db.GetClipById(clipId)
+	if err != nil {
+		c.String(http.StatusBadRequest, "invalid clip id provided: %s", c.Param("clipId"))
+		return
+	}
+	c.IndentedJSON(http.StatusOK, clip)
 }

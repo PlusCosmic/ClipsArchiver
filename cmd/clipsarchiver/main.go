@@ -1,6 +1,7 @@
 package main
 
 import (
+	"ClipsArchiver/internal/config"
 	"ClipsArchiver/internal/db"
 	"github.com/gin-gonic/gin"
 	"log"
@@ -11,12 +12,7 @@ import (
 	"time"
 )
 
-const cacheStorePath = "/Users/pluscosmic"
-const inputPath = "/Uploads/"
-const outputPath = "/Clips/"
-const thumbnailsPath = "/Clips/Thumbnails/"
-const storePath = "/Volumes/Big Store/TheArchive"
-const resourcesPath = "/Resources/"
+const error500String = "Something went wrong :("
 
 func main() {
 
@@ -42,8 +38,8 @@ func main() {
 	router.GET("/clips/date/:date", getClipsForDate) // YYYY-MM-DD
 	router.GET("/clips/download/:clipId", downloadClipById)
 	router.GET("/clips/download/thumbnail/:clipId", downloadClipThumbnailById)
-	router.StaticFS("/clips/archive", http.Dir(storePath+outputPath))
-	router.StaticFS("/resources", http.Dir(storePath+resourcesPath))
+	router.StaticFS("/clips/archive", http.Dir(config.GetOutputPath()))
+	router.StaticFS("/resources", http.Dir(config.GetResourcesPath()))
 
 	// Start the server
 	routerErr := router.Run()
@@ -78,7 +74,7 @@ func uploadClip(c *gin.Context) {
 		return
 	}
 
-	filename := cacheStorePath + inputPath + filepath.Base(file.Filename)
+	filename := config.GetInputPath() + filepath.Base(file.Filename)
 	if err := c.SaveUploadedFile(file, filename); err != nil {
 		println(err.Error())
 		c.String(http.StatusBadRequest, "upload file err: %s", err.Error())
@@ -88,6 +84,12 @@ func uploadClip(c *gin.Context) {
 	creationDateTime := form.Value["creationDateTime"][0]
 	dateTimeParts := strings.Split(creationDateTime, "-")
 	var dateTimePartsAsIntegers [6]int
+
+	if len(dateTimeParts) != 6 {
+		c.String(http.StatusBadRequest, "invalid creation date provided")
+		return
+	}
+
 	for i := 0; i < 6; i++ {
 		number, err := strconv.Atoi(dateTimeParts[i])
 		if err != nil {
@@ -121,7 +123,7 @@ func getClipByFilename(c *gin.Context) {
 func getAllUsers(c *gin.Context) {
 	users, err := db.GetAllUsers()
 	if err != nil {
-		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		c.String(http.StatusInternalServerError, error500String)
 		return
 	}
 	c.IndentedJSON(http.StatusOK, users)
@@ -130,7 +132,7 @@ func getAllUsers(c *gin.Context) {
 func getAllTags(c *gin.Context) {
 	tags, err := db.GetAllTags()
 	if err != nil {
-		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		c.String(http.StatusInternalServerError, error500String)
 		return
 	}
 	c.IndentedJSON(http.StatusOK, tags)
@@ -139,7 +141,7 @@ func getAllTags(c *gin.Context) {
 func getAllMaps(c *gin.Context) {
 	gameMaps, err := db.GetAllMaps()
 	if err != nil {
-		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		c.String(http.StatusInternalServerError, error500String)
 		return
 	}
 	c.IndentedJSON(http.StatusOK, gameMaps)
@@ -148,7 +150,7 @@ func getAllMaps(c *gin.Context) {
 func getAllLegends(c *gin.Context) {
 	legends, err := db.GetAllLegends()
 	if err != nil {
-		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		c.String(http.StatusInternalServerError, error500String)
 		return
 	}
 	c.IndentedJSON(http.StatusOK, legends)
@@ -157,7 +159,7 @@ func getAllLegends(c *gin.Context) {
 func getClipsQueue(c *gin.Context) {
 	queueEntries, err := db.GetClipsQueue()
 	if err != nil {
-		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		c.String(http.StatusInternalServerError, error500String)
 		return
 	}
 	c.IndentedJSON(http.StatusOK, queueEntries)
@@ -211,7 +213,7 @@ func getClipsForDate(c *gin.Context) {
 
 	if err != nil {
 		println(err)
-		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		c.String(http.StatusInternalServerError, error500String)
 	}
 
 	c.IndentedJSON(http.StatusOK, clips)
@@ -230,7 +232,7 @@ func downloadClipById(c *gin.Context) {
 		return
 	}
 
-	c.FileAttachment(storePath+outputPath+clip.Filename, clip.Filename)
+	c.FileAttachment(config.GetOutputPath()+clip.Filename, clip.Filename)
 }
 
 func downloadClipThumbnailById(c *gin.Context) {
@@ -246,7 +248,7 @@ func downloadClipThumbnailById(c *gin.Context) {
 		return
 	}
 
-	c.FileAttachment(storePath+thumbnailsPath+clip.Filename+".png", clip.Filename+".png")
+	c.FileAttachment(config.GetThumbnailsPath()+clip.Filename+".png", clip.Filename+".png")
 }
 
 func updateClip(c *gin.Context) {
@@ -261,16 +263,16 @@ func updateClip(c *gin.Context) {
 	}
 	existingClip, err := db.GetClipById(clipId)
 	if err != nil {
-		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		c.String(http.StatusInternalServerError, error500String)
 		return
 	}
 	err = db.UpdateClipTags(existingClip, clip)
 	if err != nil {
-		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		c.String(http.StatusInternalServerError, error500String)
 	}
 	err = db.UpdateClip(clip)
 	if err != nil {
-		c.String(http.StatusInternalServerError, "Something went wrong :(")
+		c.String(http.StatusInternalServerError, error500String)
 	}
 }
 

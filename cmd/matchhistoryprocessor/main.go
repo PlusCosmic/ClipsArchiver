@@ -1,6 +1,7 @@
 package main
 
 import (
+	"ClipsArchiver/internal/config"
 	"ClipsArchiver/internal/db"
 	"database/sql"
 	"encoding/json"
@@ -17,8 +18,6 @@ type matchHistory struct {
 	BrScoreChange      int    `json:"BRScoreChange"`
 	Map                string `json:"map"`
 }
-
-const apiKey = "_"
 
 func main() {
 	err := db.SetupDb()
@@ -41,7 +40,7 @@ func getMatchHistoryForAllUsers() error {
 		return err
 	}
 	for _, user := range allUsers {
-		url := fmt.Sprintf("https://api.mozambiquehe.re/games?auth=%s&uid=%s", apiKey, user.ApexUid)
+		url := fmt.Sprintf("https://api.mozambiquehe.re/games?auth=%s&uid=%s", config.GetApiKey(), user.ApexUid)
 		resp, err := http.Get(url)
 		if err != nil {
 			return err

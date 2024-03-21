@@ -1,6 +1,7 @@
 package db
 
 import (
+	"ClipsArchiver/internal/config"
 	"database/sql"
 	"fmt"
 	"github.com/go-sql-driver/mysql"
@@ -39,6 +40,7 @@ type QueueEntry struct {
 	Status     string       `json:"status"`
 	StartedAt  sql.NullTime `json:"startedAt"`
 	FinishedAt sql.NullTime `json:"finishedAt"`
+	Filename   string
 }
 
 type Tag struct {
@@ -75,12 +77,13 @@ type Legend struct {
 }
 
 func SetupDb() error {
+	dbConfig := config.GetDatabaseInfo()
 	cfg := mysql.Config{
-		User:      "clips_rest_user",
-		Passwd:    "123",
+		User:      dbConfig.Username,
+		Passwd:    dbConfig.Password,
 		Net:       "tcp",
-		Addr:      "10.0.0.10",
-		DBName:    "clips_archiver",
+		Addr:      dbConfig.Address,
+		DBName:    dbConfig.Name,
 		ParseTime: true,
 	}
 	var dbErr error
@@ -469,4 +472,48 @@ func GetMatchHistoriesForClip(clip Clip) ([]MatchHistory, error) {
 		return nil, err
 	}
 	return matchHistories, nil
+}
+
+func UpdateQueueEntryStatusToQueued(clipId int) error {
+	_, err := db.Exec("UPDATE clips_queue SET clips_queue.status = 'queued' WHERE clips_queue.clip_id = ?", clipId)
+	return err
+}
+func UpdateQueueEntryStatusToTranscoding(clipId int) error {
+	_, err := db.Exec("UPDATE clips_queue SET clips_queue.status = 'transcoding', clips_queue.started_at = ? WHERE clips_queue.clip_id = ?", time.Now(), clipId)
+	return err
+}
+
+func UpdateQueueEntryStatusToFinished(clipId int) error {
+	_, err := db.Exec("UPDATE clips_queue SET clips_queue.status = 'finished', clips_queue.started_at = ? WHERE clips_queue.clip_id = ?", time.Now(), clipId)
+	return err
+}
+
+func UpdateClipOnTranscodeFinish(clipId int, durationSeconds float64) error {
+	_, err := db.Exec("UPDATE clips SET clips.is_processed = 1, clips.duration = ? WHERE clips.id = ?", durationSeconds, clipId)
+	return err
+}
+
+func GetAllPendingQueueEntries() ([]QueueEntry, error) {
+	println("Checking for new queue entries")
+	var queueEntries []QueueEntry
+
+	rows, dbErr := db.Query("SELECT clips_queue.*,clips.filename FROM clips_queue INNER JOIN clips on clips_queue.clip_id = clips.id where status = 'pending'")
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var queueEntry QueueEntry
+		if err := rows.Scan(&queueEntry.Id, &queueEntry.ClipId, &queueEntry.Status, &queueEntry.StartedAt, &queueEntry.FinishedAt, &queueEntry.Filename); err != nil {
+			return nil, err
+		}
+		queueEntries = append(queueEntries, queueEntry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return queueEntries, nil
 }

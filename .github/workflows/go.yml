@@ -24,5 +24,12 @@ jobs:
 
       - name: Go Mod Verify
         run: go mod verify
+      - name: Go get db
+        run: go get ClipsArchiver/internal/db
+      - name: Go get clipsarchiver
+        run: go get ClipsArchiver/cmd/clipsarchiver
+      - name: Go get clipstranscoder
+        run: go get ClipsArchiver/cmd/clipstranscoder
+        
       - name: Build
         run: go build -v ./...

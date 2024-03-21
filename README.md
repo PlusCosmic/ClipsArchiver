@@ -26,3 +26,5 @@ Server component for the Clips Archiver project comprised of three services:
 3. Run any of the applications once to generate config files
 4. Populate config files with storage paths, API key for ALS, and database information
 5. Run all three applications
+
+[Client application](https://github.com/PlusCosmic/ClipsArchiver.Client.Windows)

@@ -1,6 +1,6 @@
 module ClipsArchiver
 
-go 1.22.0
+go 1.22
 
 require (
 	github.com/djherbis/times v1.6.0

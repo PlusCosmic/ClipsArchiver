@@ -1,4 +1,5 @@
 # ClipsArchiver
+[](https://github.com/PlusCosmic/ClipsArchiver.Server/actions/workflows/go.yml/badge.svg)
 
 [Client application](https://github.com/PlusCosmic/ClipsArchiver.Client.Windows)
 

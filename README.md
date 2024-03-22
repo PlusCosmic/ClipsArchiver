@@ -1,5 +1,5 @@
 # ClipsArchiver
-[Clips Archiver](https://github.com/PlusCosmic/ClipsArchiver.Server/actions/workflows/go.yml/badge.svg)
+[![Clips Archiver](https://github.com/PlusCosmic/ClipsArchiver.Server/actions/workflows/go.yml/badge.svg)](https://github.com/PlusCosmic/ClipsArchiver.Server/actions/workflows/go.yml)
 
 [Client application](https://github.com/PlusCosmic/ClipsArchiver.Client.Windows)
 

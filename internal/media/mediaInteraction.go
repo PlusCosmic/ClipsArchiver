@@ -3,6 +3,8 @@ package media
 import (
 	"github.com/u2takey/ffmpeg-go"
 	"github.com/vansante/go-ffprobe"
+	"math"
+	"strconv"
 	"time"
 )
 
@@ -19,8 +21,11 @@ func GenerateThumbnailFromVideo(input string, output string) error {
 }
 
 func TrimVideoFile(input string, output string, startTimeSeconds int, endTimeSeconds int) error {
-	stream := ffmpeg_go.Input(input, nil)
-	err := stream.Trim(ffmpeg_go.KwArgs{"start_frame": startTimeSeconds * 60, "end_frame": endTimeSeconds * 60}).Output(output).OverWriteOutput().Run()
+	startSeconds := startTimeSeconds % 60
+	startMinutes := math.Floor(float64(startTimeSeconds) / float64(60))
+	endSeconds := endTimeSeconds % 60
+	endMinutes := math.Floor(float64(endTimeSeconds) / float64(60))
+	err := ffmpeg_go.Input(input).Output(output, ffmpeg_go.KwArgs{"ss": "00:" + strconv.Itoa(int(startMinutes)) + ":" + strconv.Itoa(startSeconds), "to": "00:" + strconv.Itoa(int(endMinutes)) + ":" + strconv.Itoa(endSeconds), "c": "copy"}).OverWriteOutput().ErrorToStdOut().Run()
 	return err
 }
 

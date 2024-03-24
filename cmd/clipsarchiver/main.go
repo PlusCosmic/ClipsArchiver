@@ -5,25 +5,42 @@ import (
 	"ClipsArchiver/internal/db"
 	"github.com/gin-gonic/gin"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
 
+const logFileLocation = "clipsarchiver.log"
 const error500String = "Something went wrong :("
+
+var logger *slog.Logger
 
 func main() {
 
-	err := db.SetupDb()
-	if err != nil {
-		return
+	options := &slog.HandlerOptions{
+		Level:     slog.LevelDebug,
+		AddSource: true,
 	}
-	// Create Gin router
+
+	file, err := os.OpenFile(logFileLocation, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to get log file handle: %s", err.Error())
+	}
+
+	var handler slog.Handler = slog.NewJSONHandler(file, options)
+	logger = slog.New(handler)
+
+	err = db.SetupDb(logger)
+	if err != nil {
+		log.Fatalf("Failed to setup database: %s", err.Error())
+	}
+
 	router := gin.Default()
 
-	// Register Routes
 	router.POST("/clips/upload/:ownerId", uploadClip)
 	router.GET("/clips/:clipId", getClip)
 	router.PUT("/clips/:clipId", updateClip)
@@ -41,11 +58,9 @@ func main() {
 	router.StaticFS("/clips/archive", http.Dir(config.GetOutputPath()))
 	router.StaticFS("/resources", http.Dir(config.GetResourcesPath()))
 
-	// Start the server
 	routerErr := router.Run()
 	if routerErr != nil {
-		log.Fatal(routerErr)
-		return
+		log.Fatalf("Failed to start gin router: %s", routerErr)
 	}
 }
 

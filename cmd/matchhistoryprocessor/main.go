@@ -6,7 +6,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -19,11 +22,30 @@ type matchHistory struct {
 	Map                string `json:"map"`
 }
 
+const logFileLocation = "matchhistoryprocessor.log"
+
+var logger *slog.Logger
+
 func main() {
-	err := db.SetupDb()
-	if err != nil {
-		return
+
+	options := &slog.HandlerOptions{
+		Level:     slog.LevelDebug,
+		AddSource: true,
 	}
+
+	file, err := os.OpenFile(logFileLocation, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to get log file handle: %s", err.Error())
+	}
+
+	var handler slog.Handler = slog.NewJSONHandler(file, options)
+	logger = slog.New(handler)
+
+	err = db.SetupDb(logger)
+	if err != nil {
+		log.Fatalf("Failed to setup database: %s", err.Error())
+	}
+
 	_ = getMatchHistoryForAllUsers()
 	_ = processMatchHistoriesForRecentClips()
 	//main loop

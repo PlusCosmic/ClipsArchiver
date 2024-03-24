@@ -3,17 +3,37 @@ package main
 import (
 	"ClipsArchiver/internal/config"
 	"ClipsArchiver/internal/db"
+	"ClipsArchiver/internal/media"
 	"fmt"
-	"github.com/u2takey/ffmpeg-go"
-	"github.com/vansante/go-ffprobe"
+	"log"
+	"log/slog"
+	"os"
 	"time"
 )
 
+const logFileLocation = "clipstranscoder.log"
+
+var logger *slog.Logger
+
 func main() {
-	err := db.SetupDb()
-	if err != nil {
-		return
+	options := &slog.HandlerOptions{
+		Level:     slog.LevelDebug,
+		AddSource: true,
 	}
+
+	file, err := os.OpenFile(logFileLocation, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to get log file handle: %s", err.Error())
+	}
+
+	var handler slog.Handler = slog.NewJSONHandler(file, options)
+	logger = slog.New(handler)
+
+	err = db.SetupDb(logger)
+	if err != nil {
+		log.Fatalf("Failed to setup database: %s", err.Error())
+	}
+
 	jobs := make(chan db.QueueEntry)
 
 	go receiveTranscodeClipVTB(jobs)
@@ -25,9 +45,10 @@ func main() {
 }
 
 func checkForQueueEntries(jobs chan<- db.QueueEntry) {
+	slog.Debug("Checking for Queue Entries")
 	queueEntries, err := db.GetAllPendingQueueEntries()
 	if err != nil {
-		fmt.Println("Something went wrong in fetching the clips queue :(")
+		logger.Error("Failed to get pending Queue Entries")
 		return
 	}
 
@@ -51,32 +72,37 @@ func transcodeClipVTB(queueEntry db.QueueEntry) {
 	fmt.Printf("Starting transcode on %s\n", queueEntry.Filename)
 	err := db.UpdateQueueEntryStatusToTranscoding(queueEntry.ClipId)
 	if err != nil {
+		logger.Error("Failed to modify database entry: tried to set queue entry %d to transcoding", queueEntry.Id)
 		return
 	}
 
-	encoder := "h264_videotoolbox"
-
-	encodeErr := ffmpeg_go.Input(config.GetInputPath()+queueEntry.Filename).Output(config.GetOutputPath()+queueEntry.Filename, ffmpeg_go.KwArgs{"c:v": encoder, "q:v": 65, "vf": "scale=1920:1080"}).OverWriteOutput().ErrorToStdOut().Run()
-	if encodeErr != nil {
-		fmt.Println("Something went wrong when transcoding")
-		fmt.Println(encodeErr)
-	}
-
-	thumbnailErr := ffmpeg_go.Input(config.GetInputPath()+queueEntry.Filename).Output(config.GetThumbnailsPath()+queueEntry.Filename+".png", ffmpeg_go.KwArgs{"ss": "00:00:01.000", "frames:v": 1}).OverWriteOutput().ErrorToStdOut().Run()
-	if thumbnailErr != nil {
-		fmt.Println("Something went wrong when creating thumbnail")
-		fmt.Println(thumbnailErr)
-	}
-
-	result, err := ffprobe.GetProbeData(config.GetOutputPath()+queueEntry.Filename, 120000*time.Millisecond)
+	inputPath := config.GetInputPath() + queueEntry.Filename
+	outputPath := config.GetOutputPath() + queueEntry.Filename
+	err = media.TranscodeVideoFile(inputPath, outputPath)
 	if err != nil {
+		err = db.UpdateQueueEntryStatusToError(queueEntry.ClipId, "Failed to transcode video file")
+		return
+	}
+
+	imagePath := config.GetThumbnailsPath() + queueEntry.Filename + ".png"
+	err = media.GenerateThumbnailFromVideo(outputPath, imagePath)
+	if err != nil {
+		err = db.UpdateQueueEntryStatusToError(queueEntry.ClipId, "Failed to generate video thumbnail")
 		return
 	}
 
 	err = db.UpdateQueueEntryStatusToFinished(queueEntry.ClipId)
 	if err != nil {
+		err = db.UpdateQueueEntryStatusToError(queueEntry.ClipId, "Failed to modify database entry")
+		logger.Error("Failed to modify database entry: tried to set queue entry %d to finished", queueEntry.Id)
 		return
 	}
 
-	err = db.UpdateClipOnTranscodeFinish(queueEntry.ClipId, result.Format.DurationSeconds)
+	probeData, err := media.GetVideoProbeData(outputPath)
+	err = db.UpdateClipOnTranscodeFinish(queueEntry.ClipId, probeData.Format.DurationSeconds)
+	if err != nil {
+		err = db.UpdateQueueEntryStatusToError(queueEntry.ClipId, "Failed to modify database entry")
+		logger.Error("Failed to modify database entry: tried to set queue entry %d to error", queueEntry.Id)
+		return
+	}
 }

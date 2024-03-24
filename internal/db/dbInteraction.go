@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/go-sql-driver/mysql"
+	"log/slog"
 	"slices"
 	"time"
 )
 
 var db *sql.DB
+var logger *slog.Logger
 
 type User struct {
 	Id           int    `json:"id"`
@@ -40,6 +42,7 @@ type QueueEntry struct {
 	Status     string       `json:"status"`
 	StartedAt  sql.NullTime `json:"startedAt"`
 	FinishedAt sql.NullTime `json:"finishedAt"`
+	Operation  string       `json:"operation"`
 	Filename   string
 }
 
@@ -76,7 +79,8 @@ type Legend struct {
 	CardImage string
 }
 
-func SetupDb() error {
+func SetupDb(l *slog.Logger) error {
+	logger = l
 	dbConfig := config.GetDatabaseInfo()
 	cfg := mysql.Config{
 		User:      dbConfig.Username,
@@ -199,7 +203,7 @@ func GetClipsQueue() ([]QueueEntry, error) {
 
 	for rows.Next() {
 		var queueEntry QueueEntry
-		if err := rows.Scan(&queueEntry.Id, &queueEntry.ClipId, &queueEntry.Status, &queueEntry.StartedAt, &queueEntry.FinishedAt); err != nil {
+		if err := rows.Scan(&queueEntry.Id, &queueEntry.ClipId, &queueEntry.Status, &queueEntry.StartedAt, &queueEntry.FinishedAt, &queueEntry.Operation); err != nil {
 			return nil, err
 		}
 
@@ -215,7 +219,7 @@ func GetQueueEntryByClipId(id int) (QueueEntry, error) {
 	var queueEntry QueueEntry
 	row := db.QueryRow("SELECT * FROM clips_queue WHERE clips_queue.clip_id = ?", id)
 
-	err := row.Scan(&queueEntry.Id, &queueEntry.ClipId, &queueEntry.Status, &queueEntry.StartedAt, &queueEntry.FinishedAt)
+	err := row.Scan(&queueEntry.Id, &queueEntry.ClipId, &queueEntry.Status, &queueEntry.StartedAt, &queueEntry.FinishedAt, &queueEntry.Operation)
 	return queueEntry, err
 }
 
@@ -488,13 +492,17 @@ func UpdateQueueEntryStatusToFinished(clipId int) error {
 	return err
 }
 
+func UpdateQueueEntryStatusToError(clipId int, errorMessage string) error {
+	_, err := db.Exec("UPDATE clips_queue SET clips_queue.status = 'error', clips_queue.finished_at = ?, clips_queue.error_message = ? WHERE clips_queue.clip_id = ?", time.Now(), errorMessage, clipId)
+	return err
+}
+
 func UpdateClipOnTranscodeFinish(clipId int, durationSeconds float64) error {
 	_, err := db.Exec("UPDATE clips SET clips.is_processed = 1, clips.duration = ? WHERE clips.id = ?", durationSeconds, clipId)
 	return err
 }
 
 func GetAllPendingQueueEntries() ([]QueueEntry, error) {
-	println("Checking for new queue entries")
 	var queueEntries []QueueEntry
 
 	rows, dbErr := db.Query("SELECT clips_queue.*,clips.filename FROM clips_queue INNER JOIN clips on clips_queue.clip_id = clips.id where status = 'pending'")
@@ -506,7 +514,7 @@ func GetAllPendingQueueEntries() ([]QueueEntry, error) {
 
 	for rows.Next() {
 		var queueEntry QueueEntry
-		if err := rows.Scan(&queueEntry.Id, &queueEntry.ClipId, &queueEntry.Status, &queueEntry.StartedAt, &queueEntry.FinishedAt, &queueEntry.Filename); err != nil {
+		if err := rows.Scan(&queueEntry.Id, &queueEntry.ClipId, &queueEntry.Status, &queueEntry.StartedAt, &queueEntry.FinishedAt, &queueEntry.Operation); err != nil {
 			return nil, err
 		}
 		queueEntries = append(queueEntries, queueEntry)

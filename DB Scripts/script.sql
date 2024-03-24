@@ -54,12 +54,14 @@ create table clips
 
 create table clips_queue
 (
-    id          int auto_increment
+    id            int auto_increment
         primary key,
-    clip_id     int                                                   not null,
-    status      enum ('pending', 'queued', 'transcoding', 'finished') not null,
-    started_at  datetime                                              null,
-    finished_at datetime                                              null,
+    clip_id       int                                                            not null,
+    status        enum ('pending', 'queued', 'transcoding', 'finished', 'error') not null,
+    started_at    datetime                                                       null,
+    finished_at   datetime                                                       null,
+    operation     enum ('transcode', 'trim') default 'transcode'                 not null,
+    error_message longtext                                                       null,
     constraint clips_queue_clips_id_fk
         foreign key (clip_id) references clips (id)
 );
@@ -92,5 +94,4 @@ create table match_history
     constraint match_history_users_id_fk
         foreign key (user_id) references users (id)
 );
-
 

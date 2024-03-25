@@ -22,16 +22,16 @@ func Update(c *gin.Context) {
 	}
 	existingClip, err := db.GetClipById(clipId)
 	if err != nil {
-		c.String(http.StatusInternalServerError, rest.Error500String)
+		c.String(http.StatusInternalServerError, rest.ErrorDefault)
 		return
 	}
 	err = db.UpdateClipTags(existingClip, clip)
 	if err != nil {
-		c.String(http.StatusInternalServerError, rest.Error500String)
+		c.String(http.StatusInternalServerError, rest.ErrorDefault)
 	}
 	err = db.UpdateClip(clip)
 	if err != nil {
-		c.String(http.StatusInternalServerError, rest.Error500String)
+		c.String(http.StatusInternalServerError, rest.ErrorDefault)
 	}
 }
 
@@ -67,24 +67,24 @@ func GetForDate(c *gin.Context) {
 	date := c.Param("date")
 	values := strings.Split(date, "-")
 	if len(values) != 3 {
-		c.String(http.StatusBadRequest, "Invalid date format: Should be YYYY-MM-DD.")
+		c.String(http.StatusBadRequest, rest.ErrorDateFormat)
 		return
 	}
 	year, err := strconv.Atoi(values[0])
 	if err != nil {
-		c.String(http.StatusBadRequest, "Invalid date format: Should be YYYY-MM-DD.")
+		c.String(http.StatusBadRequest, rest.ErrorDateFormat)
 		return
 	}
 
 	month, err := strconv.Atoi(values[1])
 	if err != nil {
-		c.String(http.StatusBadRequest, "Invalid date format: Should be YYYY-MM-DD.")
+		c.String(http.StatusBadRequest, rest.ErrorDateFormat)
 		return
 	}
 
 	day, err := strconv.Atoi(values[2])
 	if err != nil {
-		c.String(http.StatusBadRequest, "Invalid date format: Should be YYYY-MM-DD.")
+		c.String(http.StatusBadRequest, rest.ErrorDateFormat)
 		return
 	}
 
@@ -92,7 +92,7 @@ func GetForDate(c *gin.Context) {
 
 	if err != nil {
 		println(err)
-		c.String(http.StatusInternalServerError, rest.Error500String)
+		c.String(http.StatusInternalServerError, rest.ErrorDefault)
 	}
 
 	c.IndentedJSON(http.StatusOK, clips)

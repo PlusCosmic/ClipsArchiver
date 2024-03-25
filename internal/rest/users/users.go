@@ -10,7 +10,7 @@ import (
 func GetAll(c *gin.Context) {
 	users, err := db.GetAllUsers()
 	if err != nil {
-		c.String(http.StatusInternalServerError, rest.Error500String)
+		c.String(http.StatusInternalServerError, rest.ErrorDefault)
 		return
 	}
 	c.IndentedJSON(http.StatusOK, users)

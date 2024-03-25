@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+type TrimRequest struct {
+	StartTime int `json:"startTime"`
+	EndTime   int `json:"endTime"`
+}
+
 func UploadClip(c *gin.Context) {
 	ownerId, conversionErr := strconv.Atoi(c.Param("ownerId"))
 	if conversionErr != nil {
@@ -102,4 +107,12 @@ func DownloadClipThumbnailById(c *gin.Context) {
 	}
 
 	c.FileAttachment(config.GetThumbnailsPath()+clip.Filename+".png", clip.Filename+".png")
+}
+
+func TrimClip(c *gin.Context) {
+
+}
+
+func CombineClips(c *gin.Context) {
+
 }

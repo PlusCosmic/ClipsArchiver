@@ -1,4 +1,4 @@
-package queueEntries
+package transcodeRequests
 
 import (
 	"ClipsArchiver/internal/db"
@@ -9,7 +9,7 @@ import (
 )
 
 func GetAll(c *gin.Context) {
-	queueEntries, err := db.GetAllQueueEntries()
+	queueEntries, err := db.GetAllTranscodeRequests()
 	if err != nil {
 		c.String(http.StatusInternalServerError, rest.ErrorDefault)
 		return
@@ -25,7 +25,7 @@ func GetById(c *gin.Context) {
 		return
 	}
 
-	queueEntry, err := db.GetQueueEntryByClipId(clipId)
+	queueEntry, err := db.GetTranscodeRequestByClipId(clipId)
 
 	if err != nil {
 		println(err.Error())

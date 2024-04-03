@@ -5,6 +5,7 @@ go 1.22
 require (
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-sql-driver/mysql v1.7.1
+	github.com/rabbitmq/amqp091-go v1.9.0
 	github.com/u2takey/ffmpeg-go v0.5.0
 	github.com/vansante/go-ffprobe v1.1.0
 )

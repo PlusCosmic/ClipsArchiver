@@ -3,6 +3,7 @@ package files
 import (
 	"ClipsArchiver/internal/config"
 	"ClipsArchiver/internal/db"
+	"ClipsArchiver/internal/rabbitmq"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"path/filepath"
@@ -67,11 +68,24 @@ func UploadClip(c *gin.Context) {
 		dateTimePartsAsIntegers[i] = number
 	}
 	dateTime := time.Date(dateTimePartsAsIntegers[0], time.Month(dateTimePartsAsIntegers[1]), dateTimePartsAsIntegers[2], dateTimePartsAsIntegers[3], dateTimePartsAsIntegers[4], dateTimePartsAsIntegers[5], 0, time.UTC)
-	clip, addClipErr := db.AddClip(ownerId, file.Filename, dateTime)
-	if addClipErr != nil {
-		println(addClipErr.Error())
-		c.String(http.StatusInternalServerError, addClipErr.Error())
+	clip, err = db.AddClip(ownerId, file.Filename, dateTime)
+	if err != nil {
+		println(err.Error())
+		c.String(http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	var requestEntry rabbitmq.RequestEntry
+	requestEntry.Id, err = db.CreateTranscodeRequest(clip.Id)
+	requestEntry.RequestType = 0
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	err = rabbitmq.PublishToTranscodeQueue(requestEntry)
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
 	}
 
 	c.IndentedJSON(http.StatusCreated, clip)

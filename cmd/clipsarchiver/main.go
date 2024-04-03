@@ -7,8 +7,8 @@ import (
 	"ClipsArchiver/internal/rest/files"
 	"ClipsArchiver/internal/rest/legends"
 	"ClipsArchiver/internal/rest/maps"
-	"ClipsArchiver/internal/rest/queueEntries"
 	"ClipsArchiver/internal/rest/tags"
+	"ClipsArchiver/internal/rest/transcodeRequests"
 	"ClipsArchiver/internal/rest/users"
 	"github.com/gin-gonic/gin"
 	"log"
@@ -52,8 +52,8 @@ func main() {
 	router.GET("/tags", tags.GetAll)
 	router.GET("/maps", maps.GetAll)
 	router.GET("/legends", legends.GetAll)
-	router.GET("/clips/queue", queueEntries.GetAll)
-	router.GET("/clips/queue/:clipId", queueEntries.GetById)
+	router.GET("/clips/queue", transcodeRequests.GetAll)
+	router.GET("/clips/queue/:clipId", transcodeRequests.GetById)
 	router.GET("/clips/download/:clipId", files.DownloadClipById)
 	router.GET("/clips/download/thumbnail/:clipId", files.DownloadClipThumbnailById)
 	router.POST("/clips/upload/:ownerId", files.UploadClip)

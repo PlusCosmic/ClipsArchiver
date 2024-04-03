@@ -10,8 +10,26 @@ import (
 	"time"
 )
 
-var db *sql.DB
 var logger *slog.Logger
+var db *sql.DB
+
+func SetupDb(l *slog.Logger) error {
+	logger = l
+	dbConfig := config.GetDatabaseInfo()
+	cfg := mysql.Config{
+		User:      dbConfig.Username,
+		Passwd:    dbConfig.Password,
+		Net:       "tcp",
+		Addr:      dbConfig.Address,
+		DBName:    dbConfig.Name,
+		ParseTime: true,
+	}
+	var err error
+	db, err = sql.Open("mysql", cfg.FormatDSN())
+
+	l.Debug(fmt.Sprintf("Opened database connection to %s", dbConfig.Address))
+	return err
+}
 
 type User struct {
 	Id           int    `json:"id"`
@@ -36,18 +54,37 @@ type Clip struct {
 	VideoUri          string         `json:"videoUri"`
 }
 
-type QueueEntry struct {
+type TranscodeRequest struct {
+	Id           int            `json:"id"`
+	ClipId       int            `json:"clipId"`
+	Status       string         `json:"status"`
+	StartedAt    sql.NullTime   `json:"startedAt"`
+	FinishedAt   sql.NullTime   `json:"finishedAt"`
+	ErrorMessage sql.NullString `json:"errorMessage"`
+	Filename     string
+}
+
+type TrimRequest struct {
 	Id               int            `json:"id"`
 	ClipId           int            `json:"clipId"`
 	Status           string         `json:"status"`
 	StartedAt        sql.NullTime   `json:"startedAt"`
 	FinishedAt       sql.NullTime   `json:"finishedAt"`
-	Operation        string         `json:"operation"`
 	ErrorMessage     sql.NullString `json:"errorMessage"`
-	CombineWithId    sql.NullInt32  `json:"combineWithId"`
 	DesiredStartTime sql.NullInt32  `json:"desiredStartTime"`
 	DesiredEndTime   sql.NullInt32  `json:"desiredEndTime"`
 	Filename         string
+}
+
+type CombineRequest struct {
+	Id           int            `json:"id"`
+	ClipId       int            `json:"clipId"`
+	OtherClipId  int            `json:"otherClipId"`
+	Status       string         `json:"status"`
+	StartedAt    sql.NullTime   `json:"startedAt"`
+	FinishedAt   sql.NullTime   `json:"finishedAt"`
+	ErrorMessage sql.NullString `json:"errorMessage"`
+	Filename     string
 }
 
 type Tag struct {
@@ -81,24 +118,6 @@ type Legend struct {
 	Id        int
 	Name      string
 	CardImage string
-}
-
-func SetupDb(l *slog.Logger) error {
-	logger = l
-	dbConfig := config.GetDatabaseInfo()
-	cfg := mysql.Config{
-		User:      dbConfig.Username,
-		Passwd:    dbConfig.Password,
-		Net:       "tcp",
-		Addr:      dbConfig.Address,
-		DBName:    dbConfig.Name,
-		ParseTime: true,
-	}
-	var err error
-	db, err = sql.Open("mysql", cfg.FormatDSN())
-
-	l.Debug(fmt.Sprintf("Opened database connection to %s", dbConfig.Address))
-	return err
 }
 
 func GetAllUsers() ([]User, error) {
@@ -213,44 +232,56 @@ func GetAllMaps() ([]Map, error) {
 	return maps, nil
 }
 
-func GetAllQueueEntries() ([]QueueEntry, error) {
-	logger.Debug("Fetching all queue entries")
-	var queueEntries []QueueEntry
+func GetAllTranscodeRequests() ([]TranscodeRequest, error) {
+	logger.Debug("Fetching all transcode requests")
+	var transcodeRequests []TranscodeRequest
 
-	rows, err := db.Query("SELECT * FROM clips_queue")
+	rows, err := db.Query("SELECT * FROM transcode_requests")
 	if err != nil {
-		logger.Error(fmt.Sprintf("Error fetching all queue entries: %s", err.Error()))
+		logger.Error(fmt.Sprintf("Error fetching all transcode requests: %s", err.Error()))
 		return nil, err
 	}
 
 	defer rows.Close()
 
 	for rows.Next() {
-		var queueEntry QueueEntry
-		if err = rows.Scan(&queueEntry.Id, &queueEntry.ClipId, &queueEntry.Status, &queueEntry.StartedAt, &queueEntry.FinishedAt, &queueEntry.Operation); err != nil {
-			logger.Error(fmt.Sprintf("Error fetching all queue entries: %s", err.Error()))
+		var transcodeRequest TranscodeRequest
+		if err = rows.Scan(&transcodeRequest.Id, &transcodeRequest.ClipId, &transcodeRequest.Status, &transcodeRequest.StartedAt, &transcodeRequest.FinishedAt, &transcodeRequest.ErrorMessage); err != nil {
+			logger.Error(fmt.Sprintf("Error fetching all transcode requests: %s", err.Error()))
 			return nil, err
 		}
 
-		queueEntries = append(queueEntries, queueEntry)
+		transcodeRequests = append(transcodeRequests, transcodeRequest)
 	}
 	if err = rows.Err(); err != nil {
-		logger.Error(fmt.Sprintf("Error fetching all queue entries: %s", err.Error()))
+		logger.Error(fmt.Sprintf("Error fetching all transcode requests: %s", err.Error()))
 		return nil, err
 	}
-	return queueEntries, nil
+	return transcodeRequests, nil
 }
 
-func GetQueueEntryByClipId(id int) (QueueEntry, error) {
-	logger.Debug(fmt.Sprintf("Fetching queue entries for clip id: %d", id))
-	var queueEntry QueueEntry
-	row := db.QueryRow("SELECT * FROM clips_queue WHERE clips_queue.clip_id = ?", id)
+func GetTranscodeRequestByClipId(id int) (TranscodeRequest, error) {
+	logger.Debug(fmt.Sprintf("Fetching transcode requests for clip id: %d", id))
+	var transcodeRequest TranscodeRequest
+	row := db.QueryRow("SELECT * FROM transcode_requests WHERE transcode_requests.clip_id = ?", id)
 
-	err := row.Scan(&queueEntry.Id, &queueEntry.ClipId, &queueEntry.Status, &queueEntry.StartedAt, &queueEntry.FinishedAt, &queueEntry.Operation)
+	err := row.Scan(&transcodeRequest.Id, &transcodeRequest.ClipId, &transcodeRequest.Status, &transcodeRequest.StartedAt, &transcodeRequest.FinishedAt, &transcodeRequest.ErrorMessage)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Error fetching queue entries for clip id: %d. %s", id, err.Error()))
+		logger.Error(fmt.Sprintf("Error fetching transcode requests for clip id: %d. %s", id, err.Error()))
 	}
-	return queueEntry, err
+	return transcodeRequest, err
+}
+
+func GetTranscodeRequestById(id int) (TranscodeRequest, error) {
+	logger.Debug(fmt.Sprintf("Fetching transcode request with id: %d", id))
+	var transcodeRequest TranscodeRequest
+	row := db.QueryRow("SELECT * FROM transcode_requests WHERE transcode_requests.id = ?", id)
+
+	err := row.Scan(&transcodeRequest.Id, &transcodeRequest.ClipId, &transcodeRequest.Status, &transcodeRequest.StartedAt, &transcodeRequest.FinishedAt, &transcodeRequest.ErrorMessage)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Error fetching transcode requests for clip id: %d. %s", id, err.Error()))
+	}
+	return transcodeRequest, err
 }
 
 func GetClipsForDate(dateOf time.Time) ([]Clip, error) {
@@ -320,7 +351,7 @@ func AddClip(ownerId int, filename string, createdAt time.Time) (Clip, error) {
 }
 
 func AddClipToQueue(clipId int) error {
-	_, err := db.Exec("INSERT INTO clips_queue (clip_id, status) VALUES (?, ?)", clipId, "pending")
+	_, err := db.Exec("INSERT INTO transcode_requests (clip_id, status) VALUES (?, ?)", clipId, "pending")
 	if err != nil {
 		logger.Error(fmt.Sprintf("Error adding clip with id %d to queue: %s", clipId, err.Error()))
 	}
@@ -448,12 +479,14 @@ func GetClipById(clipId int) (Clip, error) {
 }
 
 func GetClipByFilename(filename string) (Clip, error) {
+	logger.Debug(fmt.Sprintf("Getting clip with filename: %s", filename))
 	var clip Clip
 	row := db.QueryRow("SELECT * FROM clips WHERE clips.filename = ?", filename)
 
 	err := row.Scan(&clip.Id, &clip.OwnerId, &clip.Filename, &clip.IsProcessed, &clip.CreatedAt, &clip.Duration, &clip.Map, &clip.GameMode, &clip.Legend, &clip.MatchHistoryFound)
 
 	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to get clip with filename %s: %s", filename, err.Error()))
 		return clip, err
 	}
 
@@ -463,19 +496,26 @@ func GetClipByFilename(filename string) (Clip, error) {
 	}
 	clip.VideoUri = fmt.Sprintf("http://10.0.0.10:8080/clips/archive/%s", clip.Filename)
 	clip.ThumbnailUri = fmt.Sprintf("http://10.0.0.10:8080/clips/archive/Thumbnails/%s", clip.Filename+".png")
+
 	return clip, err
 }
 
 func DeleteClipById(clipId int) error {
-	_, err := db.Exec("DELETE FROM clips_queue WHERE clip_id = ?", clipId)
+	logger.Debug(fmt.Sprintf("Deleting clip with id: %d", clipId))
+	_, err := db.Exec("DELETE FROM transcode_requests WHERE clip_id = ?", clipId)
 	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to delete clip %d: %s", clipId, err.Error()))
 		return err
 	}
 	_, err = db.Exec("DELETE FROM clips_tags WHERE clip_id = ?", clipId)
 	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to delete clip %d: %s", clipId, err.Error()))
 		return err
 	}
 	_, err = db.Exec("DELETE FROM clips WHERE id = ?", clipId)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to delete clip %d: %s", clipId, err.Error()))
+	}
 	return err
 }
 
@@ -541,23 +581,18 @@ func GetMatchHistoriesForClip(clip Clip) ([]MatchHistory, error) {
 	return matchHistories, nil
 }
 
-func UpdateQueueEntryStatusToQueued(clipId int) error {
-	_, err := db.Exec("UPDATE clips_queue SET clips_queue.status = 'queued' WHERE clips_queue.clip_id = ?", clipId)
+func UpdateTranscodeRequestStatusToTranscoding(clipId int) error {
+	_, err := db.Exec("UPDATE transcode_requests SET transcode_requests.status = 'transcoding', transcode_requests.started_at = ? WHERE transcode_requests.clip_id = ?", time.Now(), clipId)
 	return err
 }
 
-func UpdateQueueEntryStatusToTranscoding(clipId int) error {
-	_, err := db.Exec("UPDATE clips_queue SET clips_queue.status = 'transcoding', clips_queue.started_at = ? WHERE clips_queue.clip_id = ?", time.Now(), clipId)
+func UpdateTranscodeRequestStatusToFinished(clipId int) error {
+	_, err := db.Exec("UPDATE transcode_requests SET transcode_requests.status = 'finished', transcode_requests.started_at = ? WHERE transcode_requests.clip_id = ?", time.Now(), clipId)
 	return err
 }
 
-func UpdateQueueEntryStatusToFinished(clipId int) error {
-	_, err := db.Exec("UPDATE clips_queue SET clips_queue.status = 'finished', clips_queue.started_at = ? WHERE clips_queue.clip_id = ?", time.Now(), clipId)
-	return err
-}
-
-func UpdateQueueEntryStatusToError(clipId int, errorMessage string) error {
-	_, err := db.Exec("UPDATE clips_queue SET clips_queue.status = 'error', clips_queue.finished_at = ?, clips_queue.error_message = ? WHERE clips_queue.clip_id = ?", time.Now(), errorMessage, clipId)
+func UpdateTranscodeRequestStatusToError(clipId int, errorMessage string) error {
+	_, err := db.Exec("UPDATE transcode_requests SET transcode_requests.status = 'error', transcode_requests.finished_at = ?, transcode_requests.error_message = ? WHERE transcode_requests.clip_id = ?", time.Now(), errorMessage, clipId)
 	return err
 }
 
@@ -566,26 +601,65 @@ func UpdateClipOnTranscodeFinish(clipId int, durationSeconds float64) error {
 	return err
 }
 
-func GetAllPendingQueueEntries() ([]QueueEntry, error) {
-	var queueEntries []QueueEntry
+func GetTrimRequestByClipId(clipId int) (TrimRequest, error) {
+	logger.Debug(fmt.Sprintf("Fetching trim requests for clip id: %d", clipId))
+	var trimRequest TrimRequest
+	row := db.QueryRow("SELECT * FROM trim_requests WHERE trim_requests.clip_id = ?", clipId)
 
-	rows, err := db.Query("SELECT clips_queue.*,clips.filename FROM clips_queue INNER JOIN clips on clips_queue.clip_id = clips.id where status = 'pending'")
+	err := row.Scan(&trimRequest.Id, &trimRequest.ClipId, &trimRequest.DesiredStartTime, &trimRequest.DesiredEndTime, &trimRequest.Status, &trimRequest.ErrorMessage, &trimRequest.StartedAt, &trimRequest.FinishedAt)
 	if err != nil {
+		logger.Error(fmt.Sprintf("Error fetching trim requests for clip id: %d. %s", clipId, err.Error()))
+	}
+	return trimRequest, err
+}
+
+func GetAllTrimRequests() ([]TrimRequest, error) {
+	logger.Debug("Fetching all trim requests")
+	var trimRequests []TrimRequest
+
+	rows, err := db.Query("SELECT * FROM trim_requests")
+	if err != nil {
+		logger.Error(fmt.Sprintf("Error fetching all trim requests: %s", err.Error()))
 		return nil, err
 	}
 
 	defer rows.Close()
 
 	for rows.Next() {
-		var queueEntry QueueEntry
-		if err := rows.Scan(&queueEntry.Id, &queueEntry.ClipId, &queueEntry.Status, &queueEntry.StartedAt, &queueEntry.FinishedAt, &queueEntry.Operation); err != nil {
+		var trimRequest TrimRequest
+		if err = rows.Scan(&trimRequest.Id, &trimRequest.ClipId, &trimRequest.DesiredStartTime, &trimRequest.DesiredEndTime, &trimRequest.Status, &trimRequest.ErrorMessage, &trimRequest.StartedAt, &trimRequest.FinishedAt); err != nil {
+			logger.Error(fmt.Sprintf("Error fetching all transcode requests: %s", err.Error()))
 			return nil, err
 		}
-		queueEntries = append(queueEntries, queueEntry)
-	}
 
-	if err := rows.Err(); err != nil {
+		trimRequests = append(trimRequests, trimRequest)
+	}
+	if err = rows.Err(); err != nil {
+		logger.Error(fmt.Sprintf("Error fetching all transcode requests: %s", err.Error()))
 		return nil, err
 	}
-	return queueEntries, nil
+	return trimRequests, nil
+}
+
+func CreateTrimRequest(trimRequest TrimRequest) error {
+	_, err := db.Exec("INSERT INTO trim_requests (clip_id, new_start_time, new_end_time, status) VALUES (?, ?, ?, ?)", trimRequest.ClipId, trimRequest.DesiredStartTime, trimRequest.DesiredEndTime, "pending")
+	if err != nil {
+		logger.Error(fmt.Sprintf("Error adding clip with id %d to queue: %s", trimRequest.ClipId, err.Error()))
+	}
+
+	return err
+}
+
+func CreateTranscodeRequest(clipId int) (int, error) {
+	result, err := db.Exec("INSERT INTO transcode_requests (clip_id, status) VALUES (?, ?)", clipId, "pending")
+	if err != nil {
+		logger.Error(fmt.Sprintf("Error adding clip with id %d to queue: %s", clipId, err.Error()))
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	return int(id), err
 }

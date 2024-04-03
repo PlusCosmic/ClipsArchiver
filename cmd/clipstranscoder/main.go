@@ -4,11 +4,12 @@ import (
 	"ClipsArchiver/internal/config"
 	"ClipsArchiver/internal/db"
 	"ClipsArchiver/internal/media"
+	"ClipsArchiver/internal/rabbitmq"
 	"fmt"
 	"log"
 	"log/slog"
 	"os"
-	"time"
+	"strconv"
 )
 
 const logFileLocation = "clipstranscoder.log"
@@ -34,43 +35,50 @@ func main() {
 		log.Fatalf("Failed to setup database: %s", err.Error())
 	}
 
-	jobs := make(chan db.QueueEntry)
-
+	jobs := make(chan db.TranscodeRequest)
 	go receiveTranscodeClipVTB(jobs)
-	//main loop
-	for i := 0; true; i++ {
-		time.Sleep(2 * time.Second)
-		checkForQueueEntries(jobs)
-	}
-}
 
-func checkForQueueEntries(jobs chan<- db.QueueEntry) {
-	slog.Debug("Checking for Queue Entries")
-	queueEntries, err := db.GetAllPendingQueueEntries()
+	var forever chan struct{}
+
+	channel, err := rabbitmq.GetConsumeChannel()
 	if err != nil {
-		logger.Error("Failed to get pending Queue Entries")
-		return
+		log.Fatalf("Failed to get RabbitMQ queue: %s", err.Error())
 	}
 
-	for _, queueEntry := range queueEntries {
-		err := db.UpdateQueueEntryStatusToQueued(queueEntry.ClipId)
+	for m := range channel {
+		slog.Debug(fmt.Sprintf("Recieved message with queue id: %s", string(m.Body)))
+		id, err := strconv.Atoi(string(m.Body))
+		if err != nil {
+			slog.Debug(fmt.Sprintf("Failed to parse message to int: %s", string(m.Body)))
+			err = m.Reject(false)
+			if err != nil {
+				continue
+			}
+		}
+		queueEntry, err := db.GetTranscodeRequestById(id)
+		if err != nil {
+			slog.Debug(fmt.Sprintf("Failed to find queueEntry for id: %s", string(m.Body)))
+			err = m.Reject(true)
+		}
+		err = m.Ack(false)
 		if err != nil {
 			continue
 		}
 		jobs <- queueEntry
 	}
 
+	<-forever
 }
 
-func receiveTranscodeClipVTB(jobs <-chan db.QueueEntry) {
+func receiveTranscodeClipVTB(jobs <-chan db.TranscodeRequest) {
 	for q := range jobs {
 		transcodeClipVTB(q)
 	}
 }
 
-func transcodeClipVTB(queueEntry db.QueueEntry) {
+func transcodeClipVTB(queueEntry db.TranscodeRequest) {
 	fmt.Printf("Starting transcode on %s\n", queueEntry.Filename)
-	err := db.UpdateQueueEntryStatusToTranscoding(queueEntry.ClipId)
+	err := db.UpdateTranscodeRequestStatusToTranscoding(queueEntry.ClipId)
 	if err != nil {
 		logger.Error("Failed to modify database entry: tried to set queue entry %d to transcoding", queueEntry.Id)
 		return
@@ -80,20 +88,20 @@ func transcodeClipVTB(queueEntry db.QueueEntry) {
 	outputPath := config.GetOutputPath() + queueEntry.Filename
 	err = media.TranscodeVideoFile(inputPath, outputPath)
 	if err != nil {
-		err = db.UpdateQueueEntryStatusToError(queueEntry.ClipId, "Failed to transcode video file")
+		err = db.UpdateTranscodeRequestStatusToError(queueEntry.ClipId, "Failed to transcode video file")
 		return
 	}
 
 	imagePath := config.GetThumbnailsPath() + queueEntry.Filename + ".png"
 	err = media.GenerateThumbnailFromVideo(outputPath, imagePath)
 	if err != nil {
-		err = db.UpdateQueueEntryStatusToError(queueEntry.ClipId, "Failed to generate video thumbnail")
+		err = db.UpdateTranscodeRequestStatusToError(queueEntry.ClipId, "Failed to generate video thumbnail")
 		return
 	}
 
-	err = db.UpdateQueueEntryStatusToFinished(queueEntry.ClipId)
+	err = db.UpdateTranscodeRequestStatusToFinished(queueEntry.ClipId)
 	if err != nil {
-		err = db.UpdateQueueEntryStatusToError(queueEntry.ClipId, "Failed to modify database entry")
+		err = db.UpdateTranscodeRequestStatusToError(queueEntry.ClipId, "Failed to modify database entry")
 		logger.Error("Failed to modify database entry: tried to set queue entry %d to finished", queueEntry.Id)
 		return
 	}
@@ -101,8 +109,16 @@ func transcodeClipVTB(queueEntry db.QueueEntry) {
 	probeData, err := media.GetVideoProbeData(outputPath)
 	err = db.UpdateClipOnTranscodeFinish(queueEntry.ClipId, probeData.Format.DurationSeconds)
 	if err != nil {
-		err = db.UpdateQueueEntryStatusToError(queueEntry.ClipId, "Failed to modify database entry")
+		err = db.UpdateTranscodeRequestStatusToError(queueEntry.ClipId, "Failed to modify database entry")
 		logger.Error("Failed to modify database entry: tried to set queue entry %d to error", queueEntry.Id)
 		return
 	}
+}
+
+func combineClips(entry db.TranscodeRequest) {
+
+}
+
+func trimClip(entry db.TranscodeRequest) {
+
 }

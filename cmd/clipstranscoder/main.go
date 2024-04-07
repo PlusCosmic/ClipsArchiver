@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 )
 
 const logFileLocation = "clipstranscoder.log"
@@ -47,14 +48,29 @@ func main() {
 
 	for m := range channel {
 		slog.Debug(fmt.Sprintf("Recieved message with queue id: %s", string(m.Body)))
-		id, err := strconv.Atoi(string(m.Body))
+		items := strings.Split(string(m.Body), "s")
+		id, err := strconv.Atoi(items[0])
 		if err != nil {
-			slog.Debug(fmt.Sprintf("Failed to parse message to int: %s", string(m.Body)))
+			slog.Debug(fmt.Sprintf("Failed to parse item to id: %s", items[0]))
 			err = m.Reject(false)
 			if err != nil {
 				continue
 			}
 		}
+
+		requestType, err := strconv.Atoi(items[1])
+		if err != nil {
+			slog.Debug(fmt.Sprintf("Failed to parse item to request type: %s", items[1]))
+			err = m.Reject(false)
+			if err != nil {
+				continue
+			}
+		}
+
+		if requestType != 0 {
+			continue
+		}
+
 		queueEntry, err := db.GetTranscodeRequestById(id)
 		if err != nil {
 			slog.Debug(fmt.Sprintf("Failed to find queueEntry for id: %s", string(m.Body)))

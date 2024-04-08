@@ -61,7 +61,6 @@ type TranscodeRequest struct {
 	StartedAt    sql.NullTime   `json:"startedAt"`
 	FinishedAt   sql.NullTime   `json:"finishedAt"`
 	ErrorMessage sql.NullString `json:"errorMessage"`
-	Filename     string
 }
 
 type TrimRequest struct {

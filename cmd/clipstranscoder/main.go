@@ -48,7 +48,13 @@ func main() {
 
 	for m := range channel {
 		slog.Debug(fmt.Sprintf("Recieved message with queue id: %s", string(m.Body)))
-		items := strings.Split(string(m.Body), "s")
+		items := strings.Split(string(m.Body), ",")
+		if len(items) != 2 {
+			slog.Debug(fmt.Sprintf("Incorrect request format: %s", string(m.Body)))
+			err = m.Reject(false)
+			continue
+		}
+
 		id, err := strconv.Atoi(items[0])
 		if err != nil {
 			slog.Debug(fmt.Sprintf("Failed to parse item to id: %s", items[0]))
@@ -93,22 +99,28 @@ func receiveTranscodeClipVTB(jobs <-chan db.TranscodeRequest) {
 }
 
 func transcodeClipVTB(queueEntry db.TranscodeRequest) {
-	fmt.Printf("Starting transcode on %s\n", queueEntry.Filename)
 	err := db.UpdateTranscodeRequestStatusToTranscoding(queueEntry.ClipId)
 	if err != nil {
 		logger.Error("Failed to modify database entry: tried to set queue entry %d to transcoding", queueEntry.Id)
 		return
 	}
 
-	inputPath := config.GetInputPath() + queueEntry.Filename
-	outputPath := config.GetOutputPath() + queueEntry.Filename
+	clip, err := db.GetClipById(queueEntry.ClipId)
+	if err != nil {
+		logger.Error("Failed to get clip for id: %d", queueEntry.Id)
+		return
+	}
+
+	inputPath := config.GetInputPath() + clip.Filename
+	outputPath := config.GetOutputPath() + clip.Filename
+	fmt.Printf("Starting transcode on %s\n", clip.Filename)
 	err = media.TranscodeVideoFile(inputPath, outputPath)
 	if err != nil {
 		err = db.UpdateTranscodeRequestStatusToError(queueEntry.ClipId, "Failed to transcode video file")
 		return
 	}
 
-	imagePath := config.GetThumbnailsPath() + queueEntry.Filename + ".png"
+	imagePath := config.GetThumbnailsPath() + clip.Filename + ".png"
 	err = media.GenerateThumbnailFromVideo(outputPath, imagePath)
 	if err != nil {
 		err = db.UpdateTranscodeRequestStatusToError(queueEntry.ClipId, "Failed to generate video thumbnail")

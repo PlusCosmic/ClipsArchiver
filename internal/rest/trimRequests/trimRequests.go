@@ -18,7 +18,7 @@ func GetAll(c *gin.Context) {
 	c.IndentedJSON(http.StatusOK, queueEntries)
 }
 
-func GetById(c *gin.Context) {
+func GetByClipId(c *gin.Context) {
 	clipId, conversionErr := strconv.Atoi(c.Param("clipId"))
 	if conversionErr != nil {
 		println(conversionErr.Error())

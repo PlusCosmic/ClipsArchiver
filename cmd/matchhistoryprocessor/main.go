@@ -3,6 +3,7 @@ package main
 import (
 	"ClipsArchiver/internal/config"
 	"ClipsArchiver/internal/db"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -19,7 +20,9 @@ type matchHistory struct {
 	GameStartTimestamp int64  `json:"gameStartTimestamp"`
 	GameEndTimestamp   int64  `json:"gameEndTimestamp"`
 	BrScoreChange      int    `json:"BRScoreChange"`
+	BrRankImg          string `json:"BRRankImg"`
 	Map                string `json:"map"`
+	MatchHash          string `json:"matchHash"`
 }
 
 const logFileLocation = "matchhistoryprocessor.log"
@@ -27,7 +30,6 @@ const logFileLocation = "matchhistoryprocessor.log"
 var logger *slog.Logger
 
 func main() {
-
 	options := &slog.HandlerOptions{
 		Level:     slog.LevelDebug,
 		AddSource: true,
@@ -85,7 +87,11 @@ func processMatchHistories(matchHistories []matchHistory) {
 			continue
 		}
 		//do we already have it?
-		_, err = db.GetMatchHistoryByUserIdAndTimeStampRange(user.Id, time.Unix(history.GameStartTimestamp, 0), time.Unix(history.GameEndTimestamp, 0))
+		hash := sha256.New()
+		jsonString, err := json.Marshal(history)
+		hash.Write(jsonString)
+		matchHash := fmt.Sprintf("%x", hash.Sum(nil))
+		_, err = db.GetMatchHistoryByMatchHash(matchHash)
 		if err == nil {
 			// we have it
 			continue
@@ -102,16 +108,22 @@ func processMatchHistories(matchHistories []matchHistory) {
 			hasLegend = false
 		}
 		gameMode := "Pubs"
+		isRanked := false
 		if history.BrScoreChange != 0 {
 			gameMode = "Ranked"
+			isRanked = true
 		}
+
 		newHist := db.MatchHistory{
-			UserId:    user.Id,
-			GameStart: sql.NullTime{Valid: true, Time: time.Unix(history.GameStartTimestamp, 0)},
-			GameEnd:   sql.NullTime{Valid: true, Time: time.Unix(history.GameEndTimestamp, 0)},
-			Map:       sql.NullInt32{Int32: int32(gameMap.Id), Valid: hasGameMap},
-			Legend:    sql.NullInt32{Int32: int32(legend.Id), Valid: hasLegend},
-			GameMode:  gameMode,
+			UserId:        user.Id,
+			GameStart:     sql.NullTime{Valid: true, Time: time.Unix(history.GameStartTimestamp, 0)},
+			GameEnd:       sql.NullTime{Valid: true, Time: time.Unix(history.GameEndTimestamp, 0)},
+			Map:           sql.NullInt32{Int32: int32(gameMap.Id), Valid: hasGameMap},
+			Legend:        sql.NullInt32{Int32: int32(legend.Id), Valid: hasLegend},
+			GameMode:      gameMode,
+			BrScoreChange: sql.NullInt32{Valid: isRanked, Int32: int32(history.BrScoreChange)},
+			BrRankImg:     sql.NullString{Valid: isRanked, String: history.BrRankImg},
+			MatchHash:     matchHash,
 		}
 		err = db.AddNewMatchHistory(newHist)
 		if err != nil {
@@ -155,6 +167,14 @@ func processMatchHistoriesForClips(clips []db.Clip) {
 		if selectedHistory.Legend.Valid {
 			clip.Legend.Int32 = selectedHistory.Legend.Int32
 			clip.Legend.Valid = true
+		}
+
+		if selectedHistory.BrScoreChange.Valid {
+			clip.BrScoreChange = selectedHistory.BrScoreChange
+		}
+
+		if selectedHistory.BrRankImg.Valid {
+			clip.BrRankImg = selectedHistory.BrRankImg
 		}
 
 		clip.GameMode.String = selectedHistory.GameMode

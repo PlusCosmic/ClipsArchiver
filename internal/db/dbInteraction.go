@@ -52,6 +52,8 @@ type Clip struct {
 	Tags              []string       `json:"tags"`
 	ThumbnailUri      string         `json:"thumbnailUri"`
 	VideoUri          string         `json:"videoUri"`
+	BrRankImg         sql.NullString `json:"brRankImg"`
+	BrScoreChange     sql.NullInt32  `json:"brScoreChange"`
 }
 
 type TranscodeRequest struct {
@@ -97,13 +99,16 @@ type ClipTag struct {
 }
 
 type MatchHistory struct {
-	Id        int
-	UserId    int
-	GameStart sql.NullTime
-	GameEnd   sql.NullTime
-	Map       sql.NullInt32
-	Legend    sql.NullInt32
-	GameMode  string
+	Id            int
+	UserId        int
+	GameStart     sql.NullTime
+	GameEnd       sql.NullTime
+	Map           sql.NullInt32
+	Legend        sql.NullInt32
+	GameMode      string
+	BrScoreChange sql.NullInt32
+	BrRankImg     sql.NullString
+	MatchHash     string
 }
 
 type Map struct {
@@ -299,7 +304,7 @@ func GetClipsForDate(dateOf time.Time) ([]Clip, error) {
 
 	for rows.Next() {
 		var clip Clip
-		if err = rows.Scan(&clip.Id, &clip.OwnerId, &clip.Filename, &clip.IsProcessed, &clip.CreatedAt, &clip.Duration, &clip.Map, &clip.GameMode, &clip.Legend, &clip.MatchHistoryFound); err != nil {
+		if err = rows.Scan(&clip.Id, &clip.OwnerId, &clip.Filename, &clip.IsProcessed, &clip.CreatedAt, &clip.Duration, &clip.Map, &clip.GameMode, &clip.Legend, &clip.MatchHistoryFound, &clip.BrRankImg, &clip.BrScoreChange); err != nil {
 			logger.Error(fmt.Sprintf("Error fetching clips for date: %s. %s", dateOf.String(), err.Error()))
 			return nil, err
 		}
@@ -454,8 +459,10 @@ func UpdateClipTags(old Clip, new Clip) error {
 
 func UpdateClip(clip Clip) error {
 	logger.Debug(fmt.Sprintf("Updating clip %d", clip.Id))
-	_, err := db.Exec("UPDATE clips SET clips.map = ?, clips.game_mode = ?, clips.legend = ?, clips.match_history_found = ? WHERE clips.id = ?", clip.Map, clip.GameMode, clip.Legend, clip.MatchHistoryFound, clip.Id)
-	logger.Error(fmt.Sprintf("Error updating clip %d: %s", clip.Id, err.Error()))
+	_, err := db.Exec("UPDATE clips SET clips.map = ?, clips.game_mode = ?, clips.legend = ?, clips.match_history_found = ?, clips.ranked_image = ?, clips.ranked_point_gain = ? WHERE clips.id = ?", clip.Map, clip.GameMode, clip.Legend, clip.MatchHistoryFound, clip.BrRankImg, clip.BrScoreChange, clip.Id)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Error updating clip %d: %s", clip.Id, err.Error()))
+	}
 	return err
 }
 
@@ -518,11 +525,11 @@ func DeleteClipById(clipId int) error {
 	return err
 }
 
-func GetMatchHistoryByUserIdAndTimeStampRange(userId int, startRange time.Time, endRange time.Time) (MatchHistory, error) {
+func GetMatchHistoryByMatchHash(matchHash string) (MatchHistory, error) {
 	var matchHistory MatchHistory
-	row := db.QueryRow("SELECT * FROM match_history WHERE match_history.user_id = ? AND match_history.game_start >= ? AND match_history.game_end <= ?", userId, startRange, endRange)
+	row := db.QueryRow("SELECT * FROM match_history WHERE match_history.match_hash = ?", matchHash)
 
-	err := row.Scan(&matchHistory.Id, &matchHistory.UserId, &matchHistory.GameStart, &matchHistory.GameEnd, &matchHistory.Map, &matchHistory.Legend, &matchHistory.GameMode)
+	err := row.Scan(&matchHistory.Id, &matchHistory.UserId, &matchHistory.GameStart, &matchHistory.GameEnd, &matchHistory.Map, &matchHistory.Legend, &matchHistory.GameMode, &matchHistory.BrRankImg, &matchHistory.BrScoreChange, &matchHistory.MatchHash)
 	return matchHistory, err
 }
 
@@ -552,7 +559,7 @@ func GetLegendByName(name string) (Legend, error) {
 }
 
 func AddNewMatchHistory(matchHistory MatchHistory) error {
-	_, err := db.Exec("INSERT INTO match_history (user_id, game_start, game_end, map, legend, game_mode) VALUES (?, ?, ?, ?, ?, ?)", matchHistory.UserId, matchHistory.GameStart, matchHistory.GameEnd, matchHistory.Map, matchHistory.Legend, matchHistory.GameMode)
+	_, err := db.Exec("INSERT INTO match_history (user_id, game_start, game_end, map, legend, game_mode, ranked_image, ranked_point_gain, match_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", matchHistory.UserId, matchHistory.GameStart, matchHistory.GameEnd, matchHistory.Map, matchHistory.Legend, matchHistory.GameMode, matchHistory.BrRankImg, matchHistory.BrScoreChange, matchHistory.MatchHash)
 	return err
 }
 
@@ -568,7 +575,7 @@ func GetMatchHistoriesForClip(clip Clip) ([]MatchHistory, error) {
 
 	for rows.Next() {
 		var matchHistory MatchHistory
-		if err := rows.Scan(&matchHistory.Id, &matchHistory.UserId, &matchHistory.GameStart, &matchHistory.GameEnd, &matchHistory.Map, &matchHistory.Legend, &matchHistory.GameMode); err != nil {
+		if err := rows.Scan(&matchHistory.Id, &matchHistory.UserId, &matchHistory.GameStart, &matchHistory.GameEnd, &matchHistory.Map, &matchHistory.Legend, &matchHistory.GameMode, &matchHistory.BrRankImg, &matchHistory.BrScoreChange, &matchHistory.MatchHash); err != nil {
 			return nil, err
 		}
 		matchHistories = append(matchHistories, matchHistory)

@@ -28,7 +28,7 @@ type DatabaseConfig struct {
 const configFileLoadError = "Error loading config file"
 const inputPath = "/Uploads/"
 const outputPath = "/Clips/"
-const thumbnailsPath = "/Clips/Thumbnails/"
+const thumbnailsPath = "/Thumbnails/"
 const resourcesPath = "/Resources/"
 const storeConfigFile = "config.json"
 const matchHistoryConfigFile = "apiConfig.json"
@@ -174,14 +174,14 @@ func GetThumbnailsPath() string {
 	if !configLoaded {
 		LoadConfig()
 	}
-	return storeConfig.StorePath + thumbnailsPath
+	return storeConfig.CacheStorePath + thumbnailsPath
 }
 
 func GetResourcesPath() string {
 	if !configLoaded {
 		LoadConfig()
 	}
-	return storeConfig.StorePath + resourcesPath
+	return storeConfig.CacheStorePath + resourcesPath
 }
 
 func GetApiKey() string {

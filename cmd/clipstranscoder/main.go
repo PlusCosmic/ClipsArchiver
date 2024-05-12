@@ -80,7 +80,8 @@ func main() {
 		queueEntry, err := db.GetTranscodeRequestById(id)
 		if err != nil {
 			slog.Debug(fmt.Sprintf("Failed to find queueEntry for id: %s", string(m.Body)))
-			err = m.Reject(true)
+			err = m.Reject(false)
+			continue
 		}
 		err = m.Ack(false)
 		if err != nil {

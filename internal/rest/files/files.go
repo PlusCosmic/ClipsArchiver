@@ -122,11 +122,3 @@ func DownloadClipThumbnailById(c *gin.Context) {
 
 	c.FileAttachment(config.GetThumbnailsPath()+clip.Filename+".png", clip.Filename+".png")
 }
-
-func TrimClip(c *gin.Context) {
-
-}
-
-func CombineClips(c *gin.Context) {
-
-}

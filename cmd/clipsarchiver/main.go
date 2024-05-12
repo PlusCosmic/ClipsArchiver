@@ -9,6 +9,7 @@ import (
 	"ClipsArchiver/internal/rest/maps"
 	"ClipsArchiver/internal/rest/tags"
 	"ClipsArchiver/internal/rest/transcodeRequests"
+	"ClipsArchiver/internal/rest/trimRequests"
 	"ClipsArchiver/internal/rest/users"
 	"github.com/gin-gonic/gin"
 	"log"
@@ -57,8 +58,9 @@ func main() {
 	router.GET("/clips/download/:clipId", files.DownloadClipById)
 	router.GET("/clips/download/thumbnail/:clipId", files.DownloadClipThumbnailById)
 	router.POST("/clips/upload/:ownerId", files.UploadClip)
-	router.POST("/clips/trim/:clipId", files.TrimClip)
-	router.POST("/clips/combine/:firstId/:secondId", files.CombineClips)
+	router.POST("/clips/trim/:clipId", trimRequests.Create)
+	router.GET("clips/trim/:clipId", trimRequests.GetByClipId)
+	//router.POST("/clips/combine/:firstId/:secondId", files.CombineClips)
 	router.StaticFS("/clips/archive", http.Dir(config.GetOutputPath()))
 	router.StaticFS("/resources", http.Dir(config.GetResourcesPath()))
 

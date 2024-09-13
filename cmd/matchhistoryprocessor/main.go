@@ -3,6 +3,7 @@ package main
 import (
 	"ClipsArchiver/internal/config"
 	"ClipsArchiver/internal/db"
+	"ClipsArchiver/internal/rabbitmq"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
@@ -25,7 +26,19 @@ type matchHistory struct {
 	MatchHash          string `json:"matchHash"`
 }
 
+type MapRotationInfo struct {
+	Map           string `json:"map"`
+	RemainingMins int    `json:"remainingMins"`
+}
+
+type MapRotation struct {
+	Current MapRotationInfo `json:"current"`
+	Next    MapRotationInfo `json:"next"`
+}
+
 const logFileLocation = "matchhistoryprocessor.log"
+
+var currentMapString = ""
 
 var logger *slog.Logger
 
@@ -55,7 +68,32 @@ func main() {
 		time.Sleep(5 * time.Second)
 		_ = getMatchHistoryForAllUsers()
 		_ = processMatchHistoriesForRecentClips()
+		_ = getMapUpdate()
 	}
+}
+
+func getMapUpdate() error {
+	url := fmt.Sprintf("https://api.mozambiquehe.re/maprotation?auth=%s", config.GetApiKey())
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	mapRotation := new(MapRotation)
+	err = json.NewDecoder(resp.Body).Decode(mapRotation)
+	if err != nil {
+		return err
+	}
+
+	if mapRotation.Current.Map != currentMapString {
+		currentMapString = mapRotation.Current.Map
+		mun := rabbitmq.MapUpdateNotification{
+			MapName:         currentMapString,
+			DurationMinutes: mapRotation.Current.RemainingMins,
+		}
+		err = rabbitmq.PublishMapUpdateNotification(mun)
+	}
+	return err
 }
 
 func getMatchHistoryForAllUsers() error {

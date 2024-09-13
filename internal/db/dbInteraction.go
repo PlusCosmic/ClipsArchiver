@@ -264,6 +264,34 @@ func GetAllTranscodeRequests() ([]TranscodeRequest, error) {
 	return transcodeRequests, nil
 }
 
+func GetAllPendingTranscodeRequests() ([]TranscodeRequest, error) {
+	logger.Debug("Fetching all transcode requests")
+	var transcodeRequests []TranscodeRequest
+
+	rows, err := db.Query("SELECT * FROM transcode_requests WHERE transcode_requests.status = 'pending'")
+	if err != nil {
+		logger.Error(fmt.Sprintf("Error fetching all transcode requests: %s", err.Error()))
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var transcodeRequest TranscodeRequest
+		if err = rows.Scan(&transcodeRequest.Id, &transcodeRequest.ClipId, &transcodeRequest.Status, &transcodeRequest.StartedAt, &transcodeRequest.FinishedAt, &transcodeRequest.ErrorMessage); err != nil {
+			logger.Error(fmt.Sprintf("Error fetching all transcode requests: %s", err.Error()))
+			return nil, err
+		}
+
+		transcodeRequests = append(transcodeRequests, transcodeRequest)
+	}
+	if err = rows.Err(); err != nil {
+		logger.Error(fmt.Sprintf("Error fetching all transcode requests: %s", err.Error()))
+		return nil, err
+	}
+	return transcodeRequests, nil
+}
+
 func GetTranscodeRequestByClipId(id int) (TranscodeRequest, error) {
 	logger.Debug(fmt.Sprintf("Fetching transcode requests for clip id: %d", id))
 	var transcodeRequest TranscodeRequest
@@ -314,7 +342,7 @@ func GetClipsForDate(dateOf time.Time) ([]Clip, error) {
 			clip.Tags = tags
 		}
 		clip.VideoUri = fmt.Sprintf("http://10.0.0.10:8080/clips/archive/%s", clip.Filename)
-		clip.ThumbnailUri = fmt.Sprintf("http://10.0.0.10:8080/clips/archive/Thumbnails/%s", clip.Filename+".png")
+		clip.ThumbnailUri = fmt.Sprintf("http://10.0.0.10:8080/clips/thumbnails/%s", clip.Filename+".png")
 		clips = append(clips, clip)
 	}
 
@@ -328,7 +356,7 @@ func GetClipsForDate(dateOf time.Time) ([]Clip, error) {
 func AddClip(ownerId int, filename string, createdAt time.Time) (Clip, error) {
 	logger.Debug(fmt.Sprintf("Adding clip with owner ID: %d, filename: %s, createdAt: %s", ownerId, filename, createdAt.String()))
 	var clip Clip
-	clipResult, err := db.Exec("INSERT INTO clips (owner_id, filename, is_processed, created_at) VALUES (?, ?, ?, ?)", ownerId, filename, 0, createdAt)
+	clipResult, err := db.Exec("INSERT INTO clips (owner_id, filename, is_processed, created_at, duration) VALUES (?, ?, ?, ?, ?)", ownerId, filename, 0, createdAt, 0)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Error adding clip: %s", err.Error()))
 		return clip, err
@@ -471,7 +499,7 @@ func GetClipById(clipId int) (Clip, error) {
 	var clip Clip
 	row := db.QueryRow("SELECT * FROM clips WHERE clips.id = ?", clipId)
 
-	err := row.Scan(&clip.Id, &clip.OwnerId, &clip.Filename, &clip.IsProcessed, &clip.CreatedAt, &clip.Duration, &clip.Map, &clip.GameMode, &clip.Legend, &clip.MatchHistoryFound)
+	err := row.Scan(&clip.Id, &clip.OwnerId, &clip.Filename, &clip.IsProcessed, &clip.CreatedAt, &clip.Duration, &clip.Map, &clip.GameMode, &clip.Legend, &clip.MatchHistoryFound, &clip.BrRankImg, &clip.BrScoreChange)
 	tags, err := GetTagsForClip(clip.Id)
 	if err == nil {
 		clip.Tags = tags
@@ -489,7 +517,7 @@ func GetClipByFilename(filename string) (Clip, error) {
 	var clip Clip
 	row := db.QueryRow("SELECT * FROM clips WHERE clips.filename = ?", filename)
 
-	err := row.Scan(&clip.Id, &clip.OwnerId, &clip.Filename, &clip.IsProcessed, &clip.CreatedAt, &clip.Duration, &clip.Map, &clip.GameMode, &clip.Legend, &clip.MatchHistoryFound)
+	err := row.Scan(&clip.Id, &clip.OwnerId, &clip.Filename, &clip.IsProcessed, &clip.CreatedAt, &clip.Duration, &clip.Map, &clip.GameMode, &clip.Legend, &clip.MatchHistoryFound, &clip.BrRankImg, &clip.BrScoreChange)
 
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to get clip with filename %s: %s", filename, err.Error()))

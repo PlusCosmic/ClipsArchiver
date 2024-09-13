@@ -62,6 +62,7 @@ func main() {
 	router.GET("clips/trim/:clipId", trimRequests.GetByClipId)
 	//router.POST("/clips/combine/:firstId/:secondId", files.CombineClips)
 	router.StaticFS("/clips/archive", http.Dir(config.GetOutputPath()))
+	router.StaticFS("/clips/thumbnails", http.Dir(config.GetThumbnailsPath()))
 	router.StaticFS("/resources", http.Dir(config.GetResourcesPath()))
 
 	routerErr := router.Run()

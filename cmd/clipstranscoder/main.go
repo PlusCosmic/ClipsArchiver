@@ -4,13 +4,11 @@ import (
 	"ClipsArchiver/internal/config"
 	"ClipsArchiver/internal/db"
 	"ClipsArchiver/internal/media"
-	"ClipsArchiver/internal/rabbitmq"
 	"fmt"
 	"log"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
+	"time"
 )
 
 const logFileLocation = "clipstranscoder.log"
@@ -41,24 +39,28 @@ func main() {
 
 	var forever chan struct{}
 
-	channel, err := rabbitmq.GetConsumeChannel()
-	if err != nil {
-		log.Fatalf("Failed to get RabbitMQ queue: %s", err.Error())
+	for i := 0; true; i++ {
+		time.Sleep(2 * time.Second)
+		checkForQueueEntries(jobs)
 	}
 
-	for m := range channel {
+	//channel, err := rabbitmq.GetConsumeChannel()
+
+	/*if err != nil {
+		log.Fatalf("Failed to get RabbitMQ queue: %s", err.Error())
+	}*/
+
+	/*for m := range channel {
 		slog.Debug(fmt.Sprintf("Recieved message with queue id: %s", string(m.Body)))
 		items := strings.Split(string(m.Body), ",")
 		if len(items) != 2 {
 			slog.Debug(fmt.Sprintf("Incorrect request format: %s", string(m.Body)))
-			err = m.Reject(false)
 			continue
 		}
 
 		id, err := strconv.Atoi(items[0])
 		if err != nil {
 			slog.Debug(fmt.Sprintf("Failed to parse item to id: %s", items[0]))
-			err = m.Reject(false)
 			if err != nil {
 				continue
 			}
@@ -67,7 +69,6 @@ func main() {
 		requestType, err := strconv.Atoi(items[1])
 		if err != nil {
 			slog.Debug(fmt.Sprintf("Failed to parse item to request type: %s", items[1]))
-			err = m.Reject(false)
 			if err != nil {
 				continue
 			}
@@ -80,7 +81,6 @@ func main() {
 		queueEntry, err := db.GetTranscodeRequestById(id)
 		if err != nil {
 			slog.Debug(fmt.Sprintf("Failed to find queueEntry for id: %s", string(m.Body)))
-			err = m.Reject(false)
 			continue
 		}
 		err = m.Ack(false)
@@ -88,9 +88,23 @@ func main() {
 			continue
 		}
 		jobs <- queueEntry
-	}
+	}*/
 
 	<-forever
+}
+
+func checkForQueueEntries(jobs chan<- db.TranscodeRequest) {
+	slog.Debug("Checking for Queue Entries")
+	queueEntries, err := db.GetAllPendingTranscodeRequests()
+	if err != nil {
+		logger.Error("Failed to get pending Queue Entries")
+		return
+	}
+
+	for _, queueEntry := range queueEntries {
+		jobs <- queueEntry
+	}
+
 }
 
 func receiveTranscodeClipVTB(jobs <-chan db.TranscodeRequest) {
